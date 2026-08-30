@@ -263,7 +263,7 @@ check("a partial name matches", byName.length, 1);
 const across = await asUser(UID_B, async () =>
   (await db.query(`select * from public.run_conflict_check(null, '031234567')`)).rows,
 );
-check("a conflict search never reaches another firm", across.map((r) => r.client_name), [
+check("a conflict search never reaches another firm", across.map((r) => r.match_name), [
   "לקוח של משרד אחר",
 ]);
 
@@ -352,6 +352,93 @@ const closedOk = await asUser(UID_A, async () => {
   return r.rows[0]?.status;
 });
 check("closing with a date is accepted", closedOk, "closed");
+
+// --- the timeline -----------------------------------------------------------
+const feedAfterOpening = await asUser(UID_A, async () =>
+  (await db.query(`
+    select kind::text, body from public.matter_activity
+    where matter_id = '${matterA1.id}' order by occurred_at
+  `)).rows,
+);
+check("opening a matter starts its timeline", feedAfterOpening.map((r) => r.kind), [
+  "matter_opened",
+  // matterA1 was closed earlier in this file, which the trigger recorded.
+  "status_changed",
+]);
+check("the status change says what changed", feedAfterOpening[1]?.body, "open → closed");
+
+await asUser(UID_A, async () => {
+  await db.query(`
+    insert into public.matter_activity (org_id, matter_id, kind, actor_user_id, body)
+    values ('${orgA}', '${matterA1.id}', 'note', '${UID_A}', 'שוחחתי עם הלקוח')
+  `);
+});
+const withNote = await asUser(UID_A, async () =>
+  (await db.query(`select body from public.matter_activity where kind = 'note'`)).rows.length,
+);
+check("a note lands on the timeline", withNote, 1);
+
+// A note signed with someone else's name would make the whole feed worthless.
+let forgedNote = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`
+      insert into public.matter_activity (org_id, matter_id, kind, actor_user_id, body)
+      values ('${orgA}', '${matterA1.id}', 'note', '${UID_B}', 'לא אני כתבתי')
+    `);
+  });
+} catch {
+  forgedNote = true;
+}
+check("a note cannot be attributed to someone else", forgedNote, true);
+
+// Neither a policy nor a grant allows it, so tidying history afterwards fails
+// outright rather than quietly touching nothing.
+let feedEditBlocked = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`update public.matter_activity set body = 'שונה' where kind = 'note'`);
+  });
+} catch {
+  feedEditBlocked = true;
+}
+check("timeline entries cannot be rewritten", feedEditBlocked, true);
+
+let feedDeleteBlocked = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`delete from public.matter_activity where kind = 'note'`);
+  });
+} catch {
+  feedDeleteBlocked = true;
+}
+check("nor deleted", feedDeleteBlocked, true);
+
+// --- parties, and the conflict search that reads them ------------------------
+await asUser(UID_A, async () => {
+  await db.query(`
+    insert into public.matter_parties (org_id, matter_id, side, name, national_id, created_by)
+    values ('${orgA}', '${matterA1.id}', 'opposing', 'רות מזרחי', '55-555-5555', '${UID_A}')
+  `);
+});
+
+const partyOnFeed = await asUser(UID_A, async () =>
+  (await db.query(`select body from public.matter_activity where kind = 'party_added'`)).rows[0],
+);
+check("adding a party shows on the timeline", partyOnFeed?.body, "רות מזרחי");
+
+// The case stage 2 could not catch: the firm already acts against this person.
+const againstParty = await asUser(UID_A, async () =>
+  (await db.query(`select * from public.run_conflict_check(null, '555555555')`)).rows,
+);
+check("a conflict search now finds opposing parties", againstParty.length, 1);
+check("and says which side they are on", againstParty[0]?.source, "party_opposing");
+check("and which matter they appear in", againstParty[0]?.matter_ref, 1);
+
+const partiesAcrossFirms = await asUser(UID_B, async () =>
+  (await db.query(`select * from public.run_conflict_check(null, '555555555')`)).rows.length,
+);
+check("parties stay inside their own firm", partiesAcrossFirms, 0);
 
 // --- soft delete actually hides things ---------------------------------------
 // Regression: the write policies were declared FOR ALL, which covers SELECT.
@@ -470,7 +557,9 @@ check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "audit_log", privs: "SELECT" },
   { table_name: "clients", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "conflict_checks", privs: "INSERT,SELECT" },
+  { table_name: "matter_activity", privs: "INSERT,SELECT" },
   { table_name: "matter_numbers", privs: "SELECT" },
+  { table_name: "matter_parties", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "matters", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "org_members", privs: "DELETE,INSERT,SELECT,UPDATE" },
   { table_name: "organizations", privs: "SELECT,UPDATE" },
