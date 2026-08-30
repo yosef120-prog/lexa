@@ -26,6 +26,8 @@ import {
   type TimeEntry,
 } from "@/lib/billing";
 import { BillingPanel } from "@/components/billing-panel";
+import { listBundles, type FilingBundle } from "@/lib/filing";
+import { FilingPanel } from "@/components/filing-panel";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
 const KIND_LABEL: Record<Activity["kind"], string> = {
@@ -59,12 +61,13 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
   const [fee, setFee] = useState<FeeAgreement | null>(null);
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [timer, setTimer] = useState<RunningTimer | null>(null);
+  const [bundles, setBundles] = useState<FilingBundle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      const [m, t, p, d, ev, f, te, tm] = await Promise.all([
+      const [m, t, p, d, ev, f, te, tm, fb] = await Promise.all([
         getMatter(matterId),
         getTimeline(matterId),
         getParties(matterId),
@@ -73,6 +76,7 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
         getFeeAgreement(matterId),
         listTimeEntries(matterId),
         getRunningTimer(),
+        listBundles(matterId),
       ]);
       setMatter(m);
       setTimeline(t);
@@ -82,6 +86,7 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
       setFee(f);
       setTimeEntries(te);
       setTimer(tm);
+      setBundles(fb);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -123,6 +128,12 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
           <MatterEvents matterId={matterId} events={events} onChanged={reload} />
           <Parties matterId={matterId} parties={parties} onAdded={reload} />
           <DocumentsPanel matterId={matterId} groups={documents} onChanged={reload} />
+          <FilingPanel
+            matterId={matterId}
+            bundles={bundles}
+            documents={documents}
+            onChanged={reload}
+          />
         </aside>
       </div>
     </div>
