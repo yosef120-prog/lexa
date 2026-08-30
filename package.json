@@ -4,14 +4,29 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node test/schema.test.mjs"
+    "test": "node test/schema.test.mjs",
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "dependencies": {
-    "@electric-sql/pglite": "^0.5.8"
+    "@electric-sql/pglite": "^0.5.8",
+    "@supabase/supabase-js": "^2.112.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
-  "private": "true"
+  "private": "true",
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  }
 }
