@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { describeDbError } from "@/lib/errors";
 
 export type Client = {
   id: string;
@@ -22,7 +23,7 @@ export async function listClients(): Promise<Client[]> {
     .from("clients")
     .select("id, kind, name, national_id, phone, email, created_at")
     .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(describeDbError(error));
   return data ?? [];
 }
 
@@ -43,7 +44,7 @@ export async function runConflictCheck(
     if (error.message.includes("NOTHING_TO_CHECK")) {
       throw new Error("צריך שם או מספר זהות כדי לבדוק.");
     }
-    throw new Error(error.message);
+    throw new Error(describeDbError(error));
   }
   return (data ?? []) as ConflictHit[];
 }
@@ -64,5 +65,5 @@ export async function createClient(input: {
     phone: input.phone.trim() || null,
     email: input.email.trim() || null,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(describeDbError(error));
 }

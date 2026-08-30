@@ -287,6 +287,106 @@ const bSeesChecks = await asUser(UID_B, async () =>
 );
 check("conflict records are firm-scoped too", bSeesChecks, 1);
 
+// --- matters ----------------------------------------------------------------
+const matterA1 = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    insert into public.matters (org_id, client_id, name, practice_area, created_by)
+    values ('${orgA}', '${clientA}', 'תביעת נזיקין', 'נזיקין', '${UID_A}')
+    returning id, ref_no, status::text
+  `);
+  return r.rows[0];
+});
+check("a matter opens with three fields", matterA1.status, "open");
+check("the first matter in a firm is numbered 1", matterA1.ref_no, 1);
+
+const matterA2 = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    insert into public.matters (org_id, client_id, name, created_by)
+    values ('${orgA}', '${clientA}', 'עסקת מכר דירה', '${UID_A}')
+    returning ref_no
+  `);
+  return r.rows[0].ref_no;
+});
+check("numbering advances within the firm", matterA2, 2);
+
+// Each firm counts from one, so a reference is short and never collides with
+// another firm's.
+const clientB = await asUser(UID_B, async () => {
+  const r = await db.query(`
+    insert into public.clients (org_id, name, created_by)
+    values ('${orgB}', 'לקוח ב', '${UID_B}') returning id
+  `);
+  return r.rows[0].id;
+});
+const matterB1 = await asUser(UID_B, async () => {
+  const r = await db.query(`
+    insert into public.matters (org_id, client_id, name, created_by)
+    values ('${orgB}', '${clientB}', 'תיק של משרד אחר', '${UID_B}') returning ref_no
+  `);
+  return r.rows[0].ref_no;
+});
+check("the other firm also starts at 1", matterB1, 1);
+
+const aSeesMatters = await asUser(UID_A, async () =>
+  (await db.query(`select name from public.matters order by ref_no`)).rows.map((r) => r.name),
+);
+check("matters are firm-scoped", aSeesMatters, ["תביעת נזיקין", "עסקת מכר דירה"]);
+
+// A closed matter with no closing date is a state no screen should have to
+// interpret, so the database refuses it.
+let closedWithoutDate = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`update public.matters set status = 'closed' where id = '${matterA1.id}'`);
+  });
+} catch {
+  closedWithoutDate = true;
+}
+check("a matter cannot be closed without a closing date", closedWithoutDate, true);
+
+const closedOk = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    update public.matters set status = 'closed', closed_at = now()
+    where id = '${matterA1.id}' returning status::text
+  `);
+  return r.rows[0]?.status;
+});
+check("closing with a date is accepted", closedOk, "closed");
+
+// --- an intern reads but does not write -------------------------------------
+const UID_C = "33333333-3333-3333-3333-333333333333";
+await db.exec(`
+  insert into auth.users (id, email) values ('${UID_C}', 'intern@example.com');
+  insert into public.org_members (org_id, user_id, role, status, joined_at)
+  values ('${orgA}', '${UID_C}', 'intern', 'active', now());
+`);
+
+const internSees = await asUser(UID_C, async () =>
+  (await db.query(`select id from public.matters`)).rows.length,
+);
+check("an intern reads the firm's matters", internSees, 2);
+
+const internWrote = await asUser(UID_C, async () => {
+  const r = await db.query(`
+    update public.matters set name = 'שונה בידי מתמחה' where id = '${matterA1.id}' returning id
+  `);
+  return r.rows.length;
+});
+check("an intern cannot change a matter", internWrote, 0);
+
+const internOpenedClient = await asUser(UID_C, async () => {
+  try {
+    const r = await db.query(`
+      insert into public.clients (org_id, name, created_by)
+      values ('${orgA}', 'לקוח של מתמחה', '${UID_C}') returning id
+    `);
+    return r.rows.length;
+  } catch {
+    return 0;
+  }
+});
+check("an intern cannot open a client", internOpenedClient, 0);
+
 // --- privileges are exactly the intended list -------------------------------
 // Regression: the real project granted anon 12 privileges the migration had not
 // asked for, because 0001 relied on a dashboard setting instead of revoking.
@@ -308,6 +408,8 @@ check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "audit_log", privs: "SELECT" },
   { table_name: "clients", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "conflict_checks", privs: "INSERT,SELECT" },
+  { table_name: "matter_numbers", privs: "SELECT" },
+  { table_name: "matters", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "org_members", privs: "DELETE,INSERT,SELECT,UPDATE" },
   { table_name: "organizations", privs: "SELECT,UPDATE" },
   { table_name: "profiles", privs: "SELECT,UPDATE" },
