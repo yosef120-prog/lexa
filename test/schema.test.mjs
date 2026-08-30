@@ -795,6 +795,94 @@ const editedBilled = await asUser(UID_A, async () => {
 });
 check("a billed line can no longer be edited", editedBilled, 0);
 
+// --- filing bundles ----------------------------------------------------------
+const bundle = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    insert into public.filing_bundles (org_id, matter_id, title, main_document_id)
+    values ('${orgA}', '${matterA1.id}', 'כתב תביעה',
+            (select id from public.documents where version_no = 2 limit 1))
+    returning id, status::text
+  `);
+  return r.rows[0];
+});
+check("a bundle starts as a draft", bundle.status, "draft");
+
+await asUser(UID_A, async () => {
+  await db.query(`
+    insert into public.filing_bundle_items (org_id, bundle_id, document_id, position)
+    values ('${orgA}', '${bundle.id}',
+            (select id from public.documents where version_no = 1 limit 1), 1)
+  `);
+});
+
+// The same exhibit twice is a mistake every time.
+let duplicateExhibit = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`
+      insert into public.filing_bundle_items (org_id, bundle_id, document_id, position)
+      values ('${orgA}', '${bundle.id}',
+              (select id from public.documents where version_no = 1 limit 1), 2)
+    `);
+  });
+} catch {
+  duplicateExhibit = true;
+}
+check("the same document cannot be filed twice in one bundle", duplicateExhibit, true);
+
+// Two appendices cannot both be נספח א׳.
+let duplicatePosition = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`
+      insert into public.filing_bundle_items (org_id, bundle_id, document_id, position)
+      values ('${orgA}', '${bundle.id}',
+              (select id from public.documents where version_no = 2 limit 1), 1)
+    `);
+  });
+} catch {
+  duplicatePosition = true;
+}
+check("nor can two appendices share a position", duplicatePosition, true);
+
+// A bundle claiming to be ready must have something to hand over.
+let readyWithoutFile = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`update public.filing_bundles set status = 'ready' where id = '${bundle.id}'`);
+  });
+} catch {
+  readyWithoutFile = true;
+}
+check("a bundle cannot be ready without a produced file", readyWithoutFile, true);
+
+let submittedWithoutDate = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`update public.filing_bundles set status = 'submitted' where id = '${bundle.id}'`);
+  });
+} catch {
+  submittedWithoutDate = true;
+}
+check("nor submitted without saying when", submittedWithoutDate, true);
+
+await asUser(UID_A, async () => {
+  await db.query(`
+    update public.filing_bundles
+    set status = 'submitted', submitted_at = now(), submitted_note = 'אישור נט 12345'
+    where id = '${bundle.id}'
+  `);
+});
+const filingOnFeed = await asUser(UID_A, async () =>
+  (await db.query(`select body from public.matter_activity where body like 'הוגש:%'`)).rows[0]?.body,
+);
+check("filing it by hand reaches the timeline", filingOnFeed, "הוגש: כתב תביעה · אישור נט 12345");
+
+const bSeesBundles = await asUser(UID_B, async () =>
+  (await db.query(`select id from public.filing_bundles`)).rows.length,
+);
+check("bundles are firm-scoped", bSeesBundles, 0);
+
 // --- soft delete actually hides things ---------------------------------------
 // Regression: the write policies were declared FOR ALL, which covers SELECT.
 // Permissive policies OR together, so for anyone able to write, the read
@@ -916,6 +1004,8 @@ check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "documents", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "events", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "fee_agreements", privs: "INSERT,SELECT,UPDATE" },
+  { table_name: "filing_bundle_items", privs: "DELETE,INSERT,SELECT,UPDATE" },
+  { table_name: "filing_bundles", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "matter_activity", privs: "INSERT,SELECT" },
   { table_name: "matter_numbers", privs: "SELECT" },
   { table_name: "matter_parties", privs: "INSERT,SELECT,UPDATE" },
