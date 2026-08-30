@@ -1,0 +1,11 @@
+node_modules
+dist
+.output
+
+# Secrets never enter the repo. Supabase keys, Resend, cron secrets: env only.
+.env
+.env.*
+!.env.example
+
+*.log
+.DS_Store
