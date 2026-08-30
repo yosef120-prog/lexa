@@ -417,15 +417,20 @@ check("nor deleted", feedDeleteBlocked, true);
 // --- parties, and the conflict search that reads them ------------------------
 await asUser(UID_A, async () => {
   await db.query(`
-    insert into public.matter_parties (org_id, matter_id, side, name, national_id, created_by)
-    values ('${orgA}', '${matterA1.id}', 'opposing', 'רות מזרחי', '55-555-5555', '${UID_A}')
+    insert into public.matter_parties (org_id, matter_id, side, name, national_id)
+    values ('${orgA}', '${matterA1.id}', 'opposing', 'רות מזרחי', '55-555-5555')
   `);
 });
 
 const partyOnFeed = await asUser(UID_A, async () =>
-  (await db.query(`select body from public.matter_activity where kind = 'party_added'`)).rows[0],
+  (await db.query(`
+    select body, actor_user_id from public.matter_activity where kind = 'party_added'
+  `)).rows[0],
 );
 check("adding a party shows on the timeline", partyOnFeed?.body, "רות מזרחי");
+// The insert above omits created_by, exactly as the app did. The column
+// defaults to the caller, so the entry is still signed.
+check("and is attributed without the caller saying so", partyOnFeed?.actor_user_id, UID_A);
 
 // The case stage 2 could not catch: the firm already acts against this person.
 const againstParty = await asUser(UID_A, async () =>
