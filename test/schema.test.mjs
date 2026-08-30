@@ -32,6 +32,11 @@ const SUPABASE_STUBS = `
 
   create role authenticated;
   create role anon;
+
+  -- Supabase grants this, and functions that deliberately run as the caller --
+  -- so that RLS applies to them -- need it to call auth.uid() at all. The
+  -- security definer ones never noticed, because they run as the owner.
+  grant usage on schema auth to authenticated, anon;
 `;
 
 let failures = 0;
@@ -217,6 +222,71 @@ for (const table of ["organizations", "org_members", "profiles", "audit_log"]) {
   check(`anon has no access to ${table}`, denied, true);
 }
 
+// --- clients and the conflict search ----------------------------------------
+const clientA = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    insert into public.clients (org_id, name, national_id, created_by)
+    values ('${orgA}', 'יוסף חיים כהן', '03-1234567', '${UID_A}')
+    returning id
+  `);
+  return r.rows[0].id;
+});
+check("a client can be opened", typeof clientA, "string");
+
+await asUser(UID_B, async () => {
+  await db.query(`
+    insert into public.clients (org_id, name, national_id, created_by)
+    values ('${orgB}', 'לקוח של משרד אחר', '031234567', '${UID_B}')
+  `);
+});
+
+const bSeesClients = await asUser(UID_B, async () =>
+  (await db.query(`select name from public.clients`)).rows.map((r) => r.name),
+);
+check("clients are firm-scoped", bSeesClients, [{ name: "לקוח של משרד אחר" }].map((r) => r.name));
+
+// The identifier is stored as typed but matched on digits, so the hyphens a
+// person happens to include must not decide whether a conflict is found.
+const byId = await asUser(UID_A, async () =>
+  (await db.query(`select * from public.run_conflict_check(null, '031234567')`)).rows,
+);
+check("an identifier matches despite different punctuation", byId.length, 1);
+check("and reports why it matched", byId[0]?.matched_on, "national_id");
+
+const byName = await asUser(UID_A, async () =>
+  (await db.query(`select * from public.run_conflict_check('כהן', null)`)).rows,
+);
+check("a partial name matches", byName.length, 1);
+
+// The sharpest failure this feature could have: telling a lawyer they are clear
+// because the match sat in someone else's firm, or worse, showing it to them.
+const across = await asUser(UID_B, async () =>
+  (await db.query(`select * from public.run_conflict_check(null, '031234567')`)).rows,
+);
+check("a conflict search never reaches another firm", across.map((r) => r.client_name), [
+  "לקוח של משרד אחר",
+]);
+
+const emptySearch = await asUser(UID_A, async () =>
+  (await db.query(`select * from public.run_conflict_check('שם שאינו קיים', null)`)).rows,
+);
+check("a search with no match returns nothing", emptySearch.length, 0);
+
+// A check that found nothing is the one most worth being able to prove later.
+const recorded = await asUser(UID_A, async () =>
+  (await db.query(`select query_name, hit_count from public.conflict_checks order by created_at`)).rows,
+);
+check("every search was recorded, misses included", recorded.length, 3);
+check("including the one that found nothing", recorded[2], {
+  query_name: "שם שאינו קיים",
+  hit_count: 0,
+});
+
+const bSeesChecks = await asUser(UID_B, async () =>
+  (await db.query(`select id from public.conflict_checks`)).rows.length,
+);
+check("conflict records are firm-scoped too", bSeesChecks, 1);
+
 // --- privileges are exactly the intended list -------------------------------
 // Regression: the real project granted anon 12 privileges the migration had not
 // asked for, because 0001 relied on a dashboard setting instead of revoking.
@@ -236,6 +306,8 @@ const authGrants = await db.query(`
 `);
 check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "audit_log", privs: "SELECT" },
+  { table_name: "clients", privs: "INSERT,SELECT,UPDATE" },
+  { table_name: "conflict_checks", privs: "INSERT,SELECT" },
   { table_name: "org_members", privs: "DELETE,INSERT,SELECT,UPDATE" },
   { table_name: "organizations", privs: "SELECT,UPDATE" },
   { table_name: "profiles", privs: "SELECT,UPDATE" },

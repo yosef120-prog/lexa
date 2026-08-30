@@ -1,5 +1,6 @@
 import { useAuth } from "@/lib/auth";
-import { Button, Card } from "@/components/ui";
+import { Button } from "@/components/ui";
+import { ClientsScreen } from "@/screens/ClientsScreen";
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "בעלים",
@@ -35,17 +36,8 @@ export function AppShell() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-3xl flex-1 p-6">
-        <Card className="flex flex-col gap-3">
-          <h1 className="text-xl font-bold">המשרד הוקם</h1>
-          <p className="text-sm text-ink-soft">
-            שלב 1 גמור: יש חשבון, יש משרד, ואתה רשום כבעלים שלו. כל פעולה שנעשית
-            מכאן נרשמת ביומן ביקורת שאי אפשר לערוך.
-          </p>
-          <p className="text-sm text-ink-soft">
-            הבא בתור — שלב 2: כרטיס לקוח ובדיקת ניגוד עניינים.
-          </p>
-        </Card>
+      <main className="flex-1">
+        <ClientsScreen />
       </main>
     </div>
   );
