@@ -12,10 +12,15 @@ export type Client = {
 };
 
 export type ConflictHit = {
-  client_id: string;
-  client_name: string;
+  match_id: string;
+  match_name: string;
   national_id: string | null;
   matched_on: "national_id" | "name";
+  /** "client", or "party_opposing" / "party_client" / "party_other". */
+  source: string;
+  /** Set when the match is a party: which matter it appears in. */
+  matter_ref: number | null;
+  matter_name: string | null;
 };
 
 export async function listClients(): Promise<Client[]> {

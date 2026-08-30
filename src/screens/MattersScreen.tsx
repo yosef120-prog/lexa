@@ -10,7 +10,13 @@ import {
 } from "@/lib/matters";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
-export function MattersScreen({ onGoToClients }: { onGoToClients: () => void }) {
+export function MattersScreen({
+  onGoToClients,
+  onOpenMatter,
+}: {
+  onGoToClients: () => void;
+  onOpenMatter: (id: string) => void;
+}) {
   const [matters, setMatters] = useState<Matter[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,7 +89,12 @@ export function MattersScreen({ onGoToClients }: { onGoToClients: () => void }) 
       {matters.length > 0 && (
         <div className="flex flex-col gap-3">
           {matters.map((m) => (
-            <Card key={m.id} className="flex items-start justify-between gap-4">
+            <Card key={m.id} className="p-0">
+              <button
+                onClick={() => onOpenMatter(m.id)}
+                className="flex w-full items-start justify-between gap-4 p-6 text-start
+                           transition-colors hover:bg-ground/60"
+              >
               <div className="flex flex-col gap-1">
                 <div className="flex items-baseline gap-2">
                   <span className="font-mono text-xs text-muted">#{m.ref_no}</span>
@@ -100,6 +111,7 @@ export function MattersScreen({ onGoToClients }: { onGoToClients: () => void }) 
                 </div>
               </div>
               <StatusPill status={m.status} />
+              </button>
             </Card>
           ))}
         </div>

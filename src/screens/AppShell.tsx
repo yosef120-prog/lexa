@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui";
 import { ClientsScreen } from "@/screens/ClientsScreen";
 import { MattersScreen } from "@/screens/MattersScreen";
+import { MatterScreen } from "@/screens/MatterScreen";
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "בעלים",
@@ -26,6 +27,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
 export function AppShell() {
   const { membership, session, signOut } = useAuth();
   const [tab, setTab] = useState<Tab>("matters");
+  const [openMatter, setOpenMatter] = useState<string | null>(null);
 
   if (!membership) return null;
 
@@ -53,7 +55,7 @@ export function AppShell() {
           {TABS.map((t) => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => { setTab(t.id); setOpenMatter(null); }}
               aria-current={tab === t.id ? "page" : undefined}
               className={`-mb-px border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors ${
                 tab === t.id
@@ -68,10 +70,15 @@ export function AppShell() {
       </header>
 
       <main className="flex-1">
-        {tab === "matters" ? (
-          <MattersScreen onGoToClients={() => setTab("clients")} />
-        ) : (
+        {tab === "clients" ? (
           <ClientsScreen />
+        ) : openMatter ? (
+          <MatterScreen matterId={openMatter} onBack={() => setOpenMatter(null)} />
+        ) : (
+          <MattersScreen
+            onGoToClients={() => setTab("clients")}
+            onOpenMatter={setOpenMatter}
+          />
         )}
       </main>
     </div>

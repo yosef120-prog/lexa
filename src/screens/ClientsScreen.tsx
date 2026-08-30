@@ -9,6 +9,12 @@ import {
 } from "@/lib/clients";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
+const SOURCE_LABEL: Record<string, string> = {
+  party_opposing: "צד שכנגד",
+  party_client: "לקוח בתיק",
+  party_other: "צד נוסף",
+};
+
 export function ClientsScreen() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
@@ -235,13 +241,23 @@ function ConflictResult({
           <p className="font-semibold text-danger">
             נמצאו {hits.length} התאמות אפשריות
           </p>
-          <ul className="mt-2 flex flex-col gap-1">
+          <ul className="mt-2 flex flex-col gap-1.5">
             {hits.map((h) => (
-              <li key={h.client_id} className="flex items-baseline gap-2">
-                <span className="font-semibold">{h.client_name}</span>
+              <li key={h.match_id} className="flex flex-col">
+                <span className="font-semibold">
+                  {h.match_name}
+                  {/* An opposing party is the serious case, so it is named
+                      first and not left to be inferred from the matter. */}
+                  {h.source !== "client" && (
+                    <span className="mr-1.5 rounded bg-danger/20 px-1.5 py-0.5 text-xs">
+                      {SOURCE_LABEL[h.source] ?? "צד בתיק"}
+                    </span>
+                  )}
+                </span>
                 <span className="text-xs text-ink-soft">
                   {h.matched_on === "national_id" ? "התאמה במספר זהות" : "התאמה בשם"}
                   {h.national_id && ` · ${h.national_id}`}
+                  {h.matter_ref !== null && ` · תיק #${h.matter_ref} ${h.matter_name ?? ""}`}
                 </span>
               </li>
             ))}
