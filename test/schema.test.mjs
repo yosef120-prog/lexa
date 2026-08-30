@@ -8,7 +8,7 @@
  * per test, which is the same contract from the policies' point of view.
  */
 import { PGlite } from "@electric-sql/pglite";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -77,12 +77,22 @@ console.log("\nschema · tenant isolation\n");
 
 await db.exec(SUPABASE_STUBS);
 
-// Deliberately no default privileges here: the project runs with "Automatically
-// expose new tables" off, so a table is reachable only because the migration
-// grants it. Simulating the permissive setting would let a missing grant pass.
-const migration = await readFile(join(root, "supabase/migrations/0001_org_foundation.sql"), "utf8");
-await db.exec(migration);
-console.log("  ok    0001_org_foundation.sql applies cleanly");
+// A real Supabase project hands anon and authenticated privileges on new tables
+// before any migration runs. An earlier version of this harness started them
+// empty, which made the suite pass while the real database left anon holding 12
+// privileges. Start permissive, exactly as the platform does, so the migrations
+// have to take the access away rather than merely never granting it.
+await db.exec(`
+  grant usage on schema public to anon, authenticated;
+  alter default privileges in schema public
+    grant select, insert, update, delete on tables to anon, authenticated;
+`);
+
+const migrationsDir = join(root, "supabase/migrations");
+for (const file of (await readdir(migrationsDir)).filter((f) => f.endsWith(".sql")).sort()) {
+  await db.exec(await readFile(join(migrationsDir, file), "utf8"));
+  console.log(`  ok    ${file} applies cleanly`);
+}
 
 await db.exec(`
   insert into auth.users (id, email, raw_user_meta_data)
@@ -206,6 +216,30 @@ for (const table of ["organizations", "org_members", "profiles", "audit_log"]) {
   }
   check(`anon has no access to ${table}`, denied, true);
 }
+
+// --- privileges are exactly the intended list -------------------------------
+// Regression: the real project granted anon 12 privileges the migration had not
+// asked for, because 0001 relied on a dashboard setting instead of revoking.
+const anonGrants = await db.query(`
+  select count(*)::int as n
+  from information_schema.role_table_grants
+  where grantee = 'anon' and table_schema = 'public'
+`);
+check("anon holds no table privilege at all", anonGrants.rows[0].n, 0);
+
+const authGrants = await db.query(`
+  select table_name, string_agg(privilege_type, ',' order by privilege_type) as privs
+  from information_schema.role_table_grants
+  where grantee = 'authenticated' and table_schema = 'public'
+  group by table_name
+  order by table_name
+`);
+check("authenticated holds exactly the granted privileges", authGrants.rows, [
+  { table_name: "audit_log", privs: "SELECT" },
+  { table_name: "org_members", privs: "DELETE,INSERT,SELECT,UPDATE" },
+  { table_name: "organizations", privs: "SELECT,UPDATE" },
+  { table_name: "profiles", privs: "SELECT,UPDATE" },
+]);
 
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 await db.close();
