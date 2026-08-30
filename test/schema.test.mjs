@@ -37,6 +37,42 @@ const SUPABASE_STUBS = `
   -- so that RLS applies to them -- need it to call auth.uid() at all. The
   -- security definer ones never noticed, because they run as the owner.
   grant usage on schema auth to authenticated, anon;
+
+  -- Enough of Supabase Storage to exercise the bucket policies. Without it the
+  -- migration would have to be skipped here, which would leave the rules
+  -- guarding client files as the only ones never tested.
+  create schema if not exists storage;
+
+  create table storage.buckets (
+    id                 text primary key,
+    name               text not null,
+    public             boolean default false,
+    file_size_limit    bigint,
+    allowed_mime_types text[]
+  );
+
+  create table storage.objects (
+    id        uuid primary key default gen_random_uuid(),
+    bucket_id text references storage.buckets (id),
+    name      text not null,
+    owner     uuid,
+    created_at timestamptz default now()
+  );
+  alter table storage.objects enable row level security;
+
+  -- Supabase's own: the path parts excluding the file name.
+  create or replace function storage.foldername(name text) returns text[]
+  language plpgsql immutable as $$
+  declare
+    parts text[] := string_to_array(name, '/');
+  begin
+    return parts[1:array_length(parts, 1) - 1];
+  end;
+  $$;
+
+  grant usage on schema storage to authenticated, anon;
+  grant select, insert on storage.objects to authenticated;
+  grant select on storage.buckets to authenticated;
 `;
 
 let failures = 0;
@@ -445,6 +481,90 @@ const partiesAcrossFirms = await asUser(UID_B, async () =>
 );
 check("parties stay inside their own firm", partiesAcrossFirms, 0);
 
+// --- documents and their versions -------------------------------------------
+const groupId = "aaaaaaaa-0000-0000-0000-000000000001";
+
+const v1 = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    insert into public.documents (org_id, matter_id, storage_path, filename, mime, size_bytes, version_group_id)
+    values ('${orgA}', '${matterA1.id}', '${orgA}/${matterA1.id}/a1', 'חוזה מכר.pdf',
+            'application/pdf', 120000, '${groupId}')
+    returning version_no
+  `);
+  return r.rows[0].version_no;
+});
+check("the first upload is version 1", v1, 1);
+
+const v2 = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    insert into public.documents (org_id, matter_id, storage_path, filename, version_group_id)
+    values ('${orgA}', '${matterA1.id}', '${orgA}/${matterA1.id}/a2', 'חוזה מכר.pdf', '${groupId}')
+    returning version_no
+  `);
+  return r.rows[0].version_no;
+});
+check("uploading again makes version 2", v2, 2);
+
+// The point of versions: the earlier bytes are still addressable.
+const bothVersions = await asUser(UID_A, async () =>
+  (await db.query(`
+    select version_no, storage_path from public.documents
+    where version_group_id = '${groupId}' order by version_no
+  `)).rows.length,
+);
+check("and version 1 is still there", bothVersions, 2);
+
+const docOnFeed = await asUser(UID_A, async () =>
+  (await db.query(`
+    select body from public.matter_activity where kind = 'document' order by occurred_at
+  `)).rows.map((r) => r.body),
+);
+check("both uploads reached the timeline", docOnFeed, ["חוזה מכר.pdf", "חוזה מכר.pdf · גרסה 2"]);
+
+check("the scan status says plainly that nothing scanned it", await asUser(UID_A, async () =>
+  (await db.query(`select scan_status from public.documents limit 1`)).rows[0].scan_status,
+), "not_scanned");
+
+const bSeesDocs = await asUser(UID_B, async () =>
+  (await db.query(`select id from public.documents`)).rows.length,
+);
+check("documents are firm-scoped", bSeesDocs, 0);
+
+// --- the bucket itself -------------------------------------------------------
+// The row is only a label; these rules are what actually stand between a firm
+// and another firm's files.
+const bucket = await db.query(
+  `select public, file_size_limit from storage.buckets where id = 'matter-documents'`,
+);
+check("the bucket is private", bucket.rows[0]?.public, false);
+
+const ownFile = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    insert into storage.objects (bucket_id, name)
+    values ('matter-documents', '${orgA}/${matterA1.id}/a3') returning id
+  `);
+  return r.rows.length;
+});
+check("a member can write into their own firm's folder", ownFile, 1);
+
+let crossFirmWrite = false;
+try {
+  await asUser(UID_B, async () => {
+    await db.query(`
+      insert into storage.objects (bucket_id, name)
+      values ('matter-documents', '${orgA}/${matterA1.id}/stolen')
+    `);
+  });
+} catch {
+  crossFirmWrite = true;
+}
+check("but not into another firm's", crossFirmWrite, true);
+
+const crossFirmRead = await asUser(UID_B, async () =>
+  (await db.query(`select id from storage.objects where bucket_id = 'matter-documents'`)).rows.length,
+);
+check("and cannot see another firm's files at all", crossFirmRead, 0);
+
 // --- soft delete actually hides things ---------------------------------------
 // Regression: the write policies were declared FOR ALL, which covers SELECT.
 // Permissive policies OR together, so for anyone able to write, the read
@@ -562,6 +682,7 @@ check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "audit_log", privs: "SELECT" },
   { table_name: "clients", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "conflict_checks", privs: "INSERT,SELECT" },
+  { table_name: "documents", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "matter_activity", privs: "INSERT,SELECT" },
   { table_name: "matter_numbers", privs: "SELECT" },
   { table_name: "matter_parties", privs: "INSERT,SELECT,UPDATE" },
