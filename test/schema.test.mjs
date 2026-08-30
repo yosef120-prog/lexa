@@ -31,6 +31,7 @@ const SUPABASE_STUBS = `
   $$;
 
   create role authenticated;
+  create role anon;
 `;
 
 let failures = 0;
@@ -76,17 +77,9 @@ console.log("\nschema · tenant isolation\n");
 
 await db.exec(SUPABASE_STUBS);
 
-// Supabase grants its roles table privileges automatically as tables are created.
-// Setting this up *before* the migration matters: the migration revokes write
-// access to audit_log, and granting afterwards would quietly undo that.
-await db.exec(`
-  grant usage on schema public to authenticated;
-  alter default privileges in schema public
-    grant select, insert, update, delete on tables to authenticated;
-  alter default privileges in schema public
-    grant usage, select on sequences to authenticated;
-`);
-
+// Deliberately no default privileges here: the project runs with "Automatically
+// expose new tables" off, so a table is reachable only because the migration
+// grants it. Simulating the permissive setting would let a missing grant pass.
 const migration = await readFile(join(root, "supabase/migrations/0001_org_foundation.sql"), "utf8");
 await db.exec(migration);
 console.log("  ok    0001_org_foundation.sql applies cleanly");
@@ -197,6 +190,22 @@ try {
   await db.exec(`reset role; set test.uid = '';`);
 }
 check("create_organization refuses an unauthenticated caller", anonBlocked, true);
+
+// --- anonymous role reaches nothing -----------------------------------------
+// With auto-expose off and no grant to anon, a logged-out caller must not even
+// get as far as RLS. Checked per table so a stray future grant is caught here.
+for (const table of ["organizations", "org_members", "profiles", "audit_log"]) {
+  let denied = false;
+  try {
+    await db.exec("set role anon;");
+    await db.query(`select 1 from public.${table} limit 1`);
+  } catch (e) {
+    denied = /permission denied/i.test(String(e.message));
+  } finally {
+    await db.exec("reset role;");
+  }
+  check(`anon has no access to ${table}`, denied, true);
+}
 
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 await db.close();

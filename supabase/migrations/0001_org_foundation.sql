@@ -287,3 +287,28 @@ $$;
 
 revoke all on function public.create_organization(text) from public;
 grant execute on function public.create_organization(text) to authenticated;
+
+-- ---------------------------------------------------------------- privileges
+
+-- The project is created with "Automatically expose new tables" turned off, so
+-- nothing is reachable through the Data API until this file says so. RLS then
+-- decides which rows. Two layers, both explicit.
+--
+-- anon is granted nothing at all: every table here is behind a login.
+--
+-- Forgetting a grant breaks a feature loudly. Forgetting a revoke leaks data
+-- silently. So the default is nothing, and additions are listed one by one.
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    grant usage on schema public to authenticated;
+
+    -- Renaming the firm is an owner action; the policy above enforces that.
+    grant select, update                 on public.organizations to authenticated;
+    grant select, insert, update, delete on public.org_members   to authenticated;
+    grant select, update                 on public.profiles      to authenticated;
+    -- Read only. Inserts arrive via the definer trigger, which needs no grant.
+    grant select                         on public.audit_log     to authenticated;
+  end if;
+end;
+$$;
