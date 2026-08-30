@@ -15,6 +15,8 @@ import {
 } from "@/lib/matter-detail";
 import { listDocuments, type DocumentGroup } from "@/lib/documents";
 import { DocumentsPanel } from "@/components/documents-panel";
+import { listMatterEvents, type CalendarEvent } from "@/lib/events";
+import { MatterEvents } from "@/components/matter-events";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
 const KIND_LABEL: Record<Activity["kind"], string> = {
@@ -44,21 +46,24 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
   const [timeline, setTimeline] = useState<Activity[]>([]);
   const [parties, setParties] = useState<Party[]>([]);
   const [documents, setDocuments] = useState<DocumentGroup[]>([]);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      const [m, t, p, d] = await Promise.all([
+      const [m, t, p, d, ev] = await Promise.all([
         getMatter(matterId),
         getTimeline(matterId),
         getParties(matterId),
         listDocuments(matterId),
+        listMatterEvents(matterId),
       ]);
       setMatter(m);
       setTimeline(t);
       setParties(p);
       setDocuments(d);
+      setEvents(ev);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -90,6 +95,7 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
         </section>
 
         <aside className="flex flex-col gap-5">
+          <MatterEvents matterId={matterId} events={events} onChanged={reload} />
           <Parties matterId={matterId} parties={parties} onAdded={reload} />
           <DocumentsPanel matterId={matterId} groups={documents} onChanged={reload} />
         </aside>

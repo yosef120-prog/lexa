@@ -4,6 +4,7 @@ import { Button } from "@/components/ui";
 import { ClientsScreen } from "@/screens/ClientsScreen";
 import { MattersScreen } from "@/screens/MattersScreen";
 import { MatterScreen } from "@/screens/MatterScreen";
+import { DiaryScreen } from "@/screens/DiaryScreen";
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "בעלים",
@@ -12,10 +13,11 @@ const ROLE_LABEL: Record<string, string> = {
   secretary: "מזכירה",
 };
 
-type Tab = "matters" | "clients";
+type Tab = "matters" | "diary" | "clients";
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "matters", label: "תיקים" },
+  { id: "diary", label: "יומן" },
   { id: "clients", label: "לקוחות" },
 ];
 
@@ -72,6 +74,10 @@ export function AppShell() {
       <main className="flex-1">
         {tab === "clients" ? (
           <ClientsScreen />
+        ) : tab === "diary" && !openMatter ? (
+          <DiaryScreen
+            onOpenMatter={(id) => { setTab("matters"); setOpenMatter(id); }}
+          />
         ) : openMatter ? (
           <MatterScreen matterId={openMatter} onBack={() => setOpenMatter(null)} />
         ) : (
