@@ -17,6 +17,15 @@ import { listDocuments, type DocumentGroup } from "@/lib/documents";
 import { DocumentsPanel } from "@/components/documents-panel";
 import { listMatterEvents, type CalendarEvent } from "@/lib/events";
 import { MatterEvents } from "@/components/matter-events";
+import {
+  getFeeAgreement,
+  getRunningTimer,
+  listTimeEntries,
+  type FeeAgreement,
+  type RunningTimer,
+  type TimeEntry,
+} from "@/lib/billing";
+import { BillingPanel } from "@/components/billing-panel";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
 const KIND_LABEL: Record<Activity["kind"], string> = {
@@ -47,23 +56,32 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
   const [parties, setParties] = useState<Party[]>([]);
   const [documents, setDocuments] = useState<DocumentGroup[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [fee, setFee] = useState<FeeAgreement | null>(null);
+  const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
+  const [timer, setTimer] = useState<RunningTimer | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      const [m, t, p, d, ev] = await Promise.all([
+      const [m, t, p, d, ev, f, te, tm] = await Promise.all([
         getMatter(matterId),
         getTimeline(matterId),
         getParties(matterId),
         listDocuments(matterId),
         listMatterEvents(matterId),
+        getFeeAgreement(matterId),
+        listTimeEntries(matterId),
+        getRunningTimer(),
       ]);
       setMatter(m);
       setTimeline(t);
       setParties(p);
       setDocuments(d);
       setEvents(ev);
+      setFee(f);
+      setTimeEntries(te);
+      setTimer(tm);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -95,6 +113,13 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
         </section>
 
         <aside className="flex flex-col gap-5">
+          <BillingPanel
+            matterId={matterId}
+            fee={fee}
+            entries={timeEntries}
+            timer={timer}
+            onChanged={reload}
+          />
           <MatterEvents matterId={matterId} events={events} onChanged={reload} />
           <Parties matterId={matterId} parties={parties} onAdded={reload} />
           <DocumentsPanel matterId={matterId} groups={documents} onChanged={reload} />
