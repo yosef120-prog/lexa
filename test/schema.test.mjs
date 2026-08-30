@@ -565,6 +565,83 @@ const crossFirmRead = await asUser(UID_B, async () =>
 );
 check("and cannot see another firm's files at all", crossFirmRead, 0);
 
+// --- the diary ---------------------------------------------------------------
+const hearing = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    insert into public.events (org_id, matter_id, kind, title, starts_at)
+    values ('${orgA}', '${matterA1.id}', 'hearing', 'דיון הוכחות',
+            now() + interval '10 days')
+    returning id, remind_at, starts_at
+  `);
+  return r.rows[0];
+});
+// Nobody entering a hearing date is thinking about when to be reminded.
+const gap = new Date(hearing.starts_at) - new Date(hearing.remind_at);
+check("a reminder defaults to 24 hours before", gap, 24 * 60 * 60 * 1000);
+
+const chosenReminder = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    insert into public.events (org_id, kind, title, starts_at, remind_at)
+    values ('${orgA}', 'deadline', 'הגשת מס שבח',
+            now() + interval '30 days', now() + interval '23 days')
+    returning remind_at
+  `);
+  return r.rows[0].remind_at !== null;
+});
+check("but a chosen one is kept", chosenReminder, true);
+
+// A firm-level entry belongs to nobody's matter, and must not need one.
+const firmWide = await asUser(UID_A, async () =>
+  (await db.query(`select id from public.events where matter_id is null`)).rows.length,
+);
+check("an event can belong to the firm rather than a matter", firmWide, 1);
+
+const eventOnFeed = await asUser(UID_A, async () =>
+  (await db.query(`select body from public.matter_activity where kind = 'event'`)).rows.length,
+);
+check("a matter's event reaches its timeline", eventOnFeed, 1);
+check("and a firm-wide one does not land on any", await asUser(UID_A, async () =>
+  (await db.query(`select count(*)::int as n from public.matter_activity where kind='event'`)).rows[0].n,
+), 1);
+
+let backwards = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`
+      insert into public.events (org_id, kind, title, starts_at, ends_at)
+      values ('${orgA}', 'meeting', 'פגישה', now() + interval '2 days', now() + interval '1 day')
+    `);
+  });
+} catch {
+  backwards = true;
+}
+check("an event cannot end before it starts", backwards, true);
+
+const bSeesEvents = await asUser(UID_B, async () =>
+  (await db.query(`select id from public.events`)).rows.length,
+);
+check("the diary is firm-scoped", bSeesEvents, 0);
+
+const UID_DIARY_INTERN = "44444444-4444-4444-4444-444444444444";
+await db.exec(`
+  insert into auth.users (id, email) values ('${UID_DIARY_INTERN}', 'intern2@example.com');
+  insert into public.org_members (org_id, user_id, role, status, joined_at)
+  values ('${orgA}', '${UID_DIARY_INTERN}', 'intern', 'active', now());
+`);
+
+const internAddedEvent = await asUser(UID_DIARY_INTERN, async () => {
+  try {
+    const r = await db.query(`
+      insert into public.events (org_id, kind, title, starts_at)
+      values ('${orgA}', 'meeting', 'של מתמחה', now()) returning id
+    `);
+    return r.rows.length;
+  } catch {
+    return 0;
+  }
+});
+check("an intern does not keep the diary", internAddedEvent, 0);
+
 // --- soft delete actually hides things ---------------------------------------
 // Regression: the write policies were declared FOR ALL, which covers SELECT.
 // Permissive policies OR together, so for anyone able to write, the read
@@ -683,6 +760,7 @@ check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "clients", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "conflict_checks", privs: "INSERT,SELECT" },
   { table_name: "documents", privs: "INSERT,SELECT,UPDATE" },
+  { table_name: "events", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "matter_activity", privs: "INSERT,SELECT" },
   { table_name: "matter_numbers", privs: "SELECT" },
   { table_name: "matter_parties", privs: "INSERT,SELECT,UPDATE" },
