@@ -339,11 +339,12 @@ const matterA2 = await asUser(UID_A, async () => {
   const r = await db.query(`
     insert into public.matters (org_id, client_id, name, created_by)
     values ('${orgA}', '${clientA}', 'עסקת מכר דירה', '${UID_A}')
-    returning ref_no
+    returning id, ref_no
   `);
-  return r.rows[0].ref_no;
+  return r.rows[0];
 });
-check("numbering advances within the firm", matterA2, 2);
+const matterA2Id = matterA2.id;
+check("numbering advances within the firm", matterA2.ref_no, 2);
 
 // Each firm counts from one, so a reference is short and never collides with
 // another firm's.
@@ -642,6 +643,158 @@ const internAddedEvent = await asUser(UID_DIARY_INTERN, async () => {
 });
 check("an intern does not keep the diary", internAddedEvent, 0);
 
+// --- fee agreements ----------------------------------------------------------
+// A colleague, so the one-timer-per-user rule can be shown to be per user
+// rather than per firm.
+const UID_C_TIMER = "55555555-5555-5555-5555-555555555555";
+await db.exec(`
+  insert into auth.users (id, email) values ('${UID_C_TIMER}', 'colleague@example.com');
+  insert into public.org_members (org_id, user_id, role, status, joined_at)
+  values ('${orgA}', '${UID_C_TIMER}', 'intern', 'active', now());
+`);
+
+// An hourly agreement with no rate cannot price anything, so it is refused at
+// the door rather than found when the first invoice comes out wrong.
+let hourlyWithoutRate = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`
+      insert into public.fee_agreements (org_id, matter_id, kind)
+      values ('${orgA}', '${matterA2Id}', 'hourly')
+    `);
+  });
+} catch {
+  hourlyWithoutRate = true;
+}
+check("an hourly agreement must carry a rate", hourlyWithoutRate, true);
+
+await asUser(UID_A, async () => {
+  await db.query(`
+    insert into public.fee_agreements (org_id, matter_id, kind, hourly_rate)
+    values ('${orgA}', '${matterA2Id}', 'hourly', 600)
+  `);
+});
+
+// Daniel's own arrangement: a percentage of the deal, with no hourly rate to
+// invent.
+await asUser(UID_A, async () => {
+  await db.query(`
+    insert into public.fee_agreements (org_id, matter_id, kind, percent)
+    values ('${orgA}', '${matterA1.id}', 'fixed', 1.5)
+  `);
+});
+check("a percentage agreement needs no hourly rate", await asUser(UID_A, async () =>
+  (await db.query(`select percent from public.fee_agreements where matter_id='${matterA1.id}'`)).rows[0].percent,
+), "1.50");
+
+let secondAgreement = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`
+      insert into public.fee_agreements (org_id, matter_id, kind, hourly_rate)
+      values ('${orgA}', '${matterA2Id}', 'hourly', 900)
+    `);
+  });
+} catch {
+  secondAgreement = true;
+}
+check("a matter cannot carry two agreements", secondAgreement, true);
+
+// --- the timer ---------------------------------------------------------------
+await asUser(UID_A, async () => {
+  await db.query(`select public.start_timer('${matterA2Id}', 'ניסוח')`);
+});
+
+const running = await asUser(UID_A, async () =>
+  (await db.query(`select matter_id from public.active_timers`)).rows.length,
+);
+check("a timer runs on the server, not in the page", running, 1);
+
+// The brief is explicit about this one.
+let secondTimer = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`select public.start_timer('${matterA1.id}')`);
+  });
+} catch (e) {
+  secondTimer = /TIMER_ALREADY_RUNNING/.test(String(e.message));
+}
+check("a user may only run one timer at a time", secondTimer, true);
+
+// Two people working at once is normal; the constraint is per person.
+const internTimer = await asUser(UID_C_TIMER, async () => {
+  await db.query(`select public.start_timer('${matterA2Id}')`);
+  return (await db.query(`select user_id from public.active_timers`)).rows.length;
+});
+check("but a colleague can run their own", internTimer, 1);
+
+const entryId = await asUser(UID_A, async () => {
+  const r = await db.query(`select public.stop_timer('ניסוח כתב הגנה') as id`);
+  return r.rows[0].id;
+});
+
+const entry = await asUser(UID_A, async () =>
+  (await db.query(`
+    select minutes, description, rate::text, invoice_id
+    from public.time_entries where id = '${entryId}'
+  `)).rows[0],
+);
+check("stopping it leaves a billable line", entry?.description, "ניסוח כתב הגנה");
+// Rounded up, so a four minute call is a minute of work rather than nothing.
+check("with at least one minute on it", entry.minutes >= 1, true);
+// Copied, not referenced: raising the firm's fees must not reprice old work.
+check("and the rate as it stood at the time", entry.rate, "600.00");
+check("not yet billed", entry.invoice_id, null);
+
+const timerCleared = await asUser(UID_A, async () =>
+  (await db.query(`select user_id from public.active_timers`)).rows.length,
+);
+check("and the timer is no longer running", timerCleared, 0);
+
+let stopWithoutStart = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`select public.stop_timer('כלום')`);
+  });
+} catch (e) {
+  stopWithoutStart = /NO_TIMER_RUNNING/.test(String(e.message));
+}
+check("stopping nothing says so", stopWithoutStart, true);
+
+const chargeOnFeed = await asUser(UID_A, async () =>
+  (await db.query(`select body from public.matter_activity where kind = 'charge'`)).rows.length,
+);
+check("the work reached the matter's timeline", chargeOnFeed, 1);
+
+// --- who may see and touch the money ----------------------------------------
+const internSeesFees = await asUser(UID_C_TIMER, async () =>
+  (await db.query(`select id from public.fee_agreements`)).rows.length,
+);
+check("an intern records time but does not see the firm's rates", internSeesFees, 0);
+
+let timeForSomeoneElse = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`
+      insert into public.time_entries (org_id, matter_id, user_id, started_at, minutes)
+      values ('${orgA}', '${matterA2Id}', '${UID_C_TIMER}', now(), 30)
+    `);
+  });
+} catch {
+  timeForSomeoneElse = true;
+}
+check("time is booked in your own name only", timeForSomeoneElse, true);
+
+// A line on a payment demand has left the building.
+await db.exec(`update public.time_entries set invoice_id = gen_random_uuid() where id = '${entryId}'`);
+const editedBilled = await asUser(UID_A, async () => {
+  const r = await db.query(
+    `update public.time_entries set minutes = 999 where id = '${entryId}' returning id`,
+  );
+  return r.rows.length;
+});
+check("a billed line can no longer be edited", editedBilled, 0);
+
 // --- soft delete actually hides things ---------------------------------------
 // Regression: the write policies were declared FOR ALL, which covers SELECT.
 // Permissive policies OR together, so for anyone able to write, the read
@@ -756,11 +909,13 @@ const authGrants = await db.query(`
   order by table_name
 `);
 check("authenticated holds exactly the granted privileges", authGrants.rows, [
+  { table_name: "active_timers", privs: "DELETE,INSERT,SELECT" },
   { table_name: "audit_log", privs: "SELECT" },
   { table_name: "clients", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "conflict_checks", privs: "INSERT,SELECT" },
   { table_name: "documents", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "events", privs: "INSERT,SELECT,UPDATE" },
+  { table_name: "fee_agreements", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "matter_activity", privs: "INSERT,SELECT" },
   { table_name: "matter_numbers", privs: "SELECT" },
   { table_name: "matter_parties", privs: "INSERT,SELECT,UPDATE" },
@@ -768,6 +923,7 @@ check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "org_members", privs: "DELETE,INSERT,SELECT,UPDATE" },
   { table_name: "organizations", privs: "SELECT,UPDATE" },
   { table_name: "profiles", privs: "SELECT,UPDATE" },
+  { table_name: "time_entries", privs: "INSERT,SELECT,UPDATE" },
 ]);
 
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
