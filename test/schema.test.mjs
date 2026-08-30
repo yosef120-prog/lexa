@@ -353,6 +353,68 @@ const closedOk = await asUser(UID_A, async () => {
 });
 check("closing with a date is accepted", closedOk, "closed");
 
+// --- soft delete actually hides things ---------------------------------------
+// Regression: the write policies were declared FOR ALL, which covers SELECT.
+// Permissive policies OR together, so for anyone able to write, the read
+// policy's `deleted_at is null` never applied and a deleted client stayed
+// visible. Every earlier check passed because none of them deleted a row and
+// then looked for it.
+const throwaway = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    insert into public.clients (org_id, name, created_by)
+    values ('${orgA}', 'לקוח למחיקה', '${UID_A}') returning id
+  `);
+  return r.rows[0].id;
+});
+
+const visibleBefore = await asUser(UID_A, async () =>
+  (await db.query(`select id from public.clients where id = '${throwaway}'`)).rows.length,
+);
+check("a new client is visible", visibleBefore, 1);
+
+// Second half of the same bug: once the read policy really applied, a plain
+// UPDATE could no longer set deleted_at, because Postgres checks that policy
+// against the new row. Deletion is a named function for exactly that reason.
+let plainUpdateRefused = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`update public.clients set deleted_at = now() where id = '${throwaway}'`);
+  });
+} catch {
+  plainUpdateRefused = true;
+}
+check("a plain update cannot delete a client", plainUpdateRefused, true);
+
+await asUser(UID_A, async () => {
+  await db.query(`select public.soft_delete_client('${throwaway}')`);
+});
+
+const visibleAfter = await asUser(UID_A, async () =>
+  (await db.query(`select id from public.clients where id = '${throwaway}'`)).rows.length,
+);
+check("a deleted client is hidden, even from the owner", visibleAfter, 0);
+
+const restored = await asUser(UID_A, async () => {
+  await db.query(`select public.restore_client('${throwaway}')`);
+  return (await db.query(`select id from public.clients where id = '${throwaway}'`)).rows.length;
+});
+check("and can be restored", restored, 1);
+
+// Losing the client behind an open matter would orphan it on screen.
+let blockedByMatter = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`select public.soft_delete_client('${clientA}')`);
+  });
+} catch (e) {
+  blockedByMatter = /HAS_OPEN_MATTERS/.test(String(e.message));
+}
+check("a client with an open matter cannot be deleted", blockedByMatter, true);
+
+await asUser(UID_A, async () => {
+  await db.query(`select public.soft_delete_client('${throwaway}')`);
+});
+
 // --- an intern reads but does not write -------------------------------------
 const UID_C = "33333333-3333-3333-3333-333333333333";
 await db.exec(`
