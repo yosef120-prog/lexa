@@ -32,6 +32,8 @@ const SUPABASE_STUBS = `
 
   create role authenticated;
   create role anon;
+  -- The role the filing renderer connects as.
+  create role service_role;
 
   -- Supabase grants this, and functions that deliberately run as the caller --
   -- so that RLS applies to them -- need it to call auth.uid() at all. The

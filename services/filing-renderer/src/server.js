@@ -241,11 +241,20 @@ createServer(async (req, res) => {
   try {
     // Read the bundle before doing any work, so a stranger asking for someone
     // else's filing is refused rather than served.
-    const { data: owner } = await supabase
+    //
+    // The error is kept rather than discarded: an earlier version dropped it
+    // and answered "not found" to what was actually a permission failure,
+    // which is a misleading answer to give about someone's own data.
+    const { data: owner, error: lookupError } = await supabase
       .from("filing_bundles")
       .select("org_id")
       .eq("id", bundleId)
       .maybeSingle();
+
+    if (lookupError) {
+      console.error("bundle lookup failed", lookupError);
+      return send(500, { error: `לא ניתן לקרוא את ההגשה: ${lookupError.message}` });
+    }
     if (!owner) return send(404, { error: "Not found" });
     if (!(await isMemberOf(userId, owner.org_id))) {
       return send(403, { error: "Forbidden" });
