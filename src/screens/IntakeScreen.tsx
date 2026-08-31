@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
   describeTrouble,
+  isVisible,
   openIntake,
   submitIntake,
   uploadIntakeFile,
@@ -60,7 +61,12 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
     );
   }
 
-  const missing = intake.questions.filter((q) => {
+  // Only what is on screen. A question hidden by its condition is not missing,
+  // and demanding it would leave somebody staring at a button that never
+  // enables with nothing to click.
+  const asked = intake.questions.filter((q) => isVisible(q, values));
+
+  const missing = asked.filter((q) => {
     if (!q.required) return false;
     if (q.type === "file") return (files[q.id] ?? []).length === 0;
     const v = values[q.id];
@@ -73,7 +79,9 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
     setBusy(true);
     setError(null);
     try {
-      const payload: AnswerPayload[] = intake.questions.map((q) => {
+      // Only the questions that were shown. Sending an answer to a hidden one
+      // would record something the client never saw.
+      const payload: AnswerPayload[] = asked.map((q) => {
         const v = values[q.id];
         switch (q.type) {
           case "number":
@@ -84,6 +92,11 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
             return { question_id: q.id, json: (v as string[]) ?? [] };
           case "file":
             return { question_id: q.id, json: files[q.id] ?? [] };
+          case "consent":
+            // Recorded as the text they agreed to, not as "true". A year from
+            // now the wording may have changed, and the question is what this
+            // client accepted.
+            return { question_id: q.id, text: v === "agreed" ? q.body : null };
           default:
             return { question_id: q.id, text: (v as string) ?? null };
         }
@@ -108,7 +121,7 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
       </div>
 
       <form onSubmit={submit} className="flex flex-col gap-4">
-        {intake.questions.map((q) => (
+        {asked.map((q) => (
           <Card key={q.id}>
             <Question
               question={q}
@@ -293,6 +306,29 @@ function Question({
         </div>
       );
     }
+
+    case "consent":
+      return (
+        <div>
+          {/* The declaration itself, not a link to it. Somebody agreeing to
+              something has to be able to read it without leaving the page. */}
+          <p className="mb-2 whitespace-pre-wrap rounded-md bg-ground p-3 text-sm leading-relaxed">
+            {q.body}
+          </p>
+          <label className="flex items-start gap-2.5 text-sm font-semibold">
+            <input
+              type="checkbox"
+              checked={value === "agreed"}
+              onChange={(e) => onValue(e.target.checked ? "agreed" : null)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-brand,#0e6e6e)]"
+            />
+            <span>
+              {q.label}
+              {q.required && <span className="text-danger"> *</span>}
+            </span>
+          </label>
+        </div>
+      );
 
     case "file":
       return (

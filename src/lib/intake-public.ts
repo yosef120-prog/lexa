@@ -20,9 +20,28 @@ export type PublicQuestion = {
   type: QuestionType;
   label: string;
   help: string | null;
+  /** For a consent question: the text being agreed to. */
+  body: string | null;
   required: boolean;
   options: string[] | null;
+  depends_on_question_id: string | null;
+  depends_on_value: string | null;
 };
+
+/**
+ * Whether a conditional question should be on screen.
+ *
+ * One level deep, matching what the editor allows. A question the client never
+ * saw is never demanded — the required check uses this too, so the two cannot
+ * disagree and leave somebody stuck on a button that will not enable.
+ */
+export function isVisible(q: PublicQuestion, answers: Record<string, unknown>): boolean {
+  if (!q.depends_on_question_id || !q.depends_on_value) return true;
+  const given = answers[q.depends_on_question_id];
+  if (given === undefined || given === null) return false;
+  if (Array.isArray(given)) return given.includes(q.depends_on_value);
+  return given === q.depends_on_value;
+}
 
 export type PublicIntake = {
   valid: boolean;

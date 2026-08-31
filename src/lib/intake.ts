@@ -17,7 +17,8 @@ export type QuestionType =
   | "single_choice"
   | "multi_choice"
   | "date"
-  | "file";
+  | "file"
+  | "consent";
 
 export const QUESTION_TYPE_LABEL: Record<QuestionType, string> = {
   text: "טקסט קצר",
@@ -28,6 +29,7 @@ export const QUESTION_TYPE_LABEL: Record<QuestionType, string> = {
   multi_choice: "בחירה מרובה",
   date: "תאריך",
   file: "קובץ",
+  consent: "הצהרה לאישור",
 };
 
 export type IntakeQuestion = {
@@ -36,8 +38,13 @@ export type IntakeQuestion = {
   type: QuestionType;
   label: string;
   help: string | null;
+  /** For a consent question: the text being agreed to. */
+  body: string | null;
   required: boolean;
   options: string[] | null;
+  /** Show this only when that question was answered with depends_on_value. */
+  depends_on_question_id: string | null;
+  depends_on_value: string | null;
 };
 
 export type IntakeForm = {
@@ -94,7 +101,7 @@ export async function listForms(): Promise<IntakeForm[]> {
 export async function listQuestions(formId: string): Promise<IntakeQuestion[]> {
   const { data, error } = await supabase
     .from("intake_questions")
-    .select("id, position, type, label, help, required, options")
+    .select("id, position, type, label, help, body, required, options, depends_on_question_id, depends_on_value")
     .eq("form_id", formId)
     .order("position", { ascending: true });
   if (error) throw new Error(describeDbError(error));
@@ -117,25 +124,96 @@ export async function addQuestion(input: {
   position: number;
   type: QuestionType;
   label: string;
+  help?: string;
+  body?: string;
   required: boolean;
   options: string[];
-}): Promise<void> {
+  // Returns the new id, because a condition has to point at a question that
+  // does not exist until this call has run.
+}): Promise<string> {
   const needsOptions = input.type === "single_choice" || input.type === "multi_choice";
-  const { error } = await supabase.from("intake_questions").insert({
+  const { data, error } = await supabase.from("intake_questions").insert({
     org_id: input.org_id,
     form_id: input.form_id,
     position: input.position,
     type: input.type,
     label: input.label.trim(),
+    help: input.help?.trim() || null,
+    body: input.type === "consent" ? input.body?.trim() || null : null,
     required: input.required,
     options: needsOptions ? input.options.filter((o) => o.trim()) : null,
-  });
+  })
+    .select("id")
+    .single();
   if (error) {
     if (error.message.includes("intake_choice_has_options")) {
       throw new Error("שאלת בחירה צריכה לפחות אפשרות אחת.");
     }
     throw new Error(describeDbError(error));
   }
+  return data.id;
+}
+
+/** Correcting a question after seeing how a client read it. */
+export async function updateQuestion(
+  id: string,
+  patch: {
+    type: QuestionType;
+    label: string;
+    help: string;
+    body: string;
+    required: boolean;
+    options: string[];
+    depends_on_question_id: string | null;
+    depends_on_value: string | null;
+  },
+): Promise<void> {
+  const needsOptions = patch.type === "single_choice" || patch.type === "multi_choice";
+  const { error } = await supabase
+    .from("intake_questions")
+    .update({
+      type: patch.type,
+      label: patch.label.trim(),
+      help: patch.help.trim() || null,
+      body: patch.type === "consent" ? patch.body.trim() || null : null,
+      required: patch.required,
+      options: needsOptions ? patch.options.filter((o) => o.trim()) : null,
+      depends_on_question_id: patch.depends_on_question_id,
+      depends_on_value: patch.depends_on_question_id ? patch.depends_on_value : null,
+    })
+    .eq("id", id);
+  if (error) {
+    if (error.message.includes("intake_choice_has_options")) {
+      throw new Error("שאלת בחירה צריכה לפחות אפשרות אחת.");
+    }
+    throw new Error(describeDbError(error));
+  }
+}
+
+/**
+ * Moving a question up or down.
+ *
+ * Both rows are written in one request so the unique constraint on (form,
+ * position) sees the finished pair rather than the half-swapped middle — which
+ * is why that constraint is deferred.
+ */
+export async function swapQuestions(a: IntakeQuestion, b: IntakeQuestion): Promise<void> {
+  const { error } = await supabase.from("intake_questions").upsert([
+    { id: a.id, position: b.position },
+    { id: b.id, position: a.position },
+  ]);
+  if (error) throw new Error(describeDbError(error));
+}
+
+export async function updateForm(
+  id: string,
+  patch: { name: string; intro: string },
+): Promise<void> {
+  const { error } = await supabase
+    .from("intake_forms")
+    .update({ name: patch.name.trim(), intro: patch.intro.trim() || null })
+    .eq("id", id);
+  if (error) throw new Error(describeDbError(error));
 }
 
 export async function removeQuestion(id: string): Promise<void> {
