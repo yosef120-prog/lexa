@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { describeDbError } from "@/lib/errors";
+import { contradicts, describeMismatch, SNIFF_BYTES } from "@/lib/file-signature";
 
 const BUCKET = "matter-documents";
 
@@ -84,6 +85,14 @@ export async function uploadDocument(input: {
 
   if (file.size > MAX_BYTES) {
     throw new Error(`הקובץ גדול מ־${formatSize(MAX_BYTES)}. נסה קובץ קטן יותר.`);
+  }
+
+  // The bucket refuses anything outside a short list of types, but it judges by
+  // the type the browser declares. These few bytes are the only evidence of
+  // what the file actually is, and reading them costs one slice of one file.
+  const head = new Uint8Array(await file.slice(0, SNIFF_BYTES).arrayBuffer());
+  if (file.type && contradicts(file.type, head)) {
+    throw new Error(describeMismatch(file.name, head));
   }
 
   // The first segment is the firm id: that is what the storage policy reads.

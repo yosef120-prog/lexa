@@ -119,7 +119,9 @@ export function DocumentsPanel({
       {/* Said once, where files are handled, because a lawyer uploading a
           client's contract is entitled to know what the system does not do. */}
       <p className="border-t border-rule pt-2 text-xs text-muted">
-        קבצים אינם נסרקים לווירוסים. קישורי ההורדה פגים תוך דקה.
+        {/* Precise about both halves. A vague "נבדק" would let someone assume
+            the scanning that has not happened. */}
+        סוג הקובץ נבדק מול תוכנו, אך אין סריקת וירוסים. קישורי ההורדה פגים תוך דקה.
       </p>
     </Card>
   );
