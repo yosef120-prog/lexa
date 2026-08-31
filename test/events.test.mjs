@@ -90,9 +90,16 @@ check("and it stops once the hearing has started", isDue(entry({ starts_at: at(-
 // The case that matters on the morning of: a deadline dated today is still
 // today at four in the afternoon, and dropping the warning at midnight would
 // remove it on the one day it is worth having.
-const todayAllDay = { all_day: true, starts_at: "2026-09-10T00:00:00+03:00", remind_at: at(-24) };
+//
+// Built in local terms rather than written with an offset. isDue reads all-day
+// dates the way a person does -- a deadline on the 3rd is the 3rd where you are
+// -- so a literal like "+03:00" would assert the runner sits in Israel, and
+// this test would pass in Tel Aviv and fail on a build machine in UTC. It did.
+const midnightOn = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
+const yesterday = new Date(now.getTime() - 24 * HOUR);
+const todayAllDay = { all_day: true, starts_at: midnightOn(now), remind_at: at(-24) };
 check("an all-day deadline lasts its whole day", isDue(entry(todayAllDay), now), true);
-check("yesterday's does not", isDue(entry({ ...todayAllDay, starts_at: "2026-09-09T00:00:00+03:00" }), now), false);
+check("yesterday's does not", isDue(entry({ ...todayAllDay, starts_at: midnightOn(yesterday) }), now), false);
 
 const ME = "me";
 const led = (lead) => ({ id: "m", ref_no: 1, name: "n", lead_user_id: lead });
