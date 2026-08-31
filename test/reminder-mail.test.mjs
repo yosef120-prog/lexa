@@ -110,5 +110,42 @@ check(
   true,
 );
 
+// A questionnaire coming back outranks a date in the subject line. The date
+// will still be there tomorrow; the client who finally sent their documents is
+// waiting now.
+const arrival = (name) => ({ id: name, client_name: name, form_name: "שאלון פתיחת תיק" });
+
+check(
+  "one arrival and nothing else names the client",
+  subjectFor([], now, [arrival("שרה לוי")]),
+  "שאלון חזר: שרה לוי",
+);
+check("several are counted", subjectFor([], now, [arrival("א"), arrival("ב")]), "2 שאלונים חזרו");
+check(
+  "arrivals come before dates when there are both",
+  subjectFor([hearing()], now, [arrival("שרה לוי")]).startsWith("1 שאלונים חזרו"),
+  true,
+);
+check(
+  "and dates alone still read as before",
+  subjectFor([hearing()], now, []),
+  "דיון מחר: דיון הוכחות",
+);
+
+// The arrival is listed above the dates for the same reason.
+const bothBody = bodyFor([hearing()], now, [arrival("שרה לוי")]);
+check("the mail lists the arrival", bothBody.includes("שאלון חזר"), true);
+check(
+  "above the diary entries",
+  bothBody.indexOf("שאלון חזר") < bothBody.indexOf("דיון הוכחות"),
+  true,
+);
+// A client's name is data, and it goes into markup like any other.
+check(
+  "and a name is escaped there too",
+  bodyFor([], now, [arrival('<b>x</b>')]).includes("&lt;b&gt;"),
+  true,
+);
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures === 0 ? 0 : 1);

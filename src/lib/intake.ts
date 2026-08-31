@@ -189,6 +189,56 @@ export async function revokeIntake(id: string): Promise<void> {
   if (error) throw new Error(describeDbError(error));
 }
 
+export type ArrivedIntake = {
+  id: string;
+  submitted_at: string;
+  client: { id: string; name: string } | null;
+  form: { name: string } | null;
+};
+
+/**
+ * Questionnaires that came back and nobody has looked at yet.
+ *
+ * The banner's whole job. Row level security scopes it to the firm, so no
+ * org filter is needed here — the same reason every other list in this file
+ * omits one.
+ */
+export async function listArrivedIntakes(): Promise<ArrivedIntake[]> {
+  const { data, error } = await supabase
+    .from("client_intakes")
+    .select("id, submitted_at, client:clients(id, name), form:intake_forms(name)")
+    .eq("status", "submitted")
+    .is("reviewed_at", null)
+    .order("submitted_at", { ascending: false })
+    .limit(20);
+  if (error) throw new Error(describeDbError(error));
+
+  const one = <T,>(v: unknown): T | null =>
+    Array.isArray(v) ? ((v[0] as T) ?? null) : ((v as T) ?? null);
+
+  return (data ?? []).map((row) => ({
+    ...(row as unknown as ArrivedIntake),
+    client: one((row as Record<string, unknown>).client),
+    form: one((row as Record<string, unknown>).form),
+  }));
+}
+
+/**
+ * Marking one as looked at.
+ *
+ * Writes reviewed_at only. notified_at belongs to the mail job, and a banner
+ * that silences tomorrow's email would lose a client's documents in a busy
+ * week — the same trap as the diary's reminded_at.
+ */
+export async function markIntakeReviewed(id: string): Promise<void> {
+  const { data: who } = await supabase.auth.getUser();
+  const { error } = await supabase
+    .from("client_intakes")
+    .update({ reviewed_at: new Date().toISOString(), reviewed_by: who.user?.id })
+    .eq("id", id);
+  if (error) throw new Error(describeDbError(error));
+}
+
 export async function listAnswers(intakeId: string): Promise<IntakeAnswer[]> {
   const { data, error } = await supabase
     .from("intake_answers")

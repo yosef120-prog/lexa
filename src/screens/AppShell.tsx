@@ -121,7 +121,7 @@ export function AppShell() {
 
       {/* Outside main, and under the header on every tab: a hearing tomorrow is
           not a property of whichever screen happens to be open. */}
-      <ReminderBanner onOpenMatter={openMatterFrom} />
+      <ReminderBanner onOpenMatter={openMatterFrom} onOpenClient={openClientFrom} />
 
       {/* Padded at the bottom so the fixed phone navigation never covers the
           last row of a list. */}

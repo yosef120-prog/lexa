@@ -8,6 +8,7 @@ import {
   relativeWhen,
   type Reminder,
 } from "@/lib/events";
+import { listArrivedIntakes, markIntakeReviewed, type ArrivedIntake } from "@/lib/intake";
 
 const DISMISSED_KEY = "lexa.reminders.dismissed";
 
@@ -47,22 +48,32 @@ function writeDismissed(ids: string[]): void {
  * and honestly: it reaches whoever opens the app, and says so by living at the
  * top of every screen rather than in a notification that was never sent.
  */
-export function ReminderBanner({ onOpenMatter }: { onOpenMatter: (id: string) => void }) {
+export function ReminderBanner({
+  onOpenMatter,
+  onOpenClient,
+}: {
+  onOpenMatter: (id: string) => void;
+  onOpenClient: (id: string) => void;
+}) {
   const { session } = useAuth();
   const [due, setDue] = useState<Reminder[]>([]);
+  const [arrived, setArrived] = useState<ArrivedIntake[]>([]);
   const [dismissed, setDismissed] = useState<string[]>(readDismissed);
 
   const userId = session?.user.id;
 
   const reload = useCallback(async () => {
     if (!userId) return;
-    try {
-      setDue(await listDueReminders(userId));
-    } catch (e) {
-      // A failure here must not take the screen down with it. The diary is one
-      // tab away and holds the same dates.
-      console.warn("reminders unavailable", e);
-    }
+    // Settled rather than all: a client's answers arriving is worth saying even
+    // if the diary query fails, and the other way round.
+    const [dates, intakes] = await Promise.allSettled([
+      listDueReminders(userId),
+      listArrivedIntakes(),
+    ]);
+    if (dates.status === "fulfilled") setDue(dates.value);
+    else console.warn("reminders unavailable", dates.reason);
+    if (intakes.status === "fulfilled") setArrived(intakes.value);
+    else console.warn("arrived questionnaires unavailable", intakes.reason);
   }, [userId]);
 
   useEffect(() => {
@@ -74,7 +85,7 @@ export function ReminderBanner({ onOpenMatter }: { onOpenMatter: (id: string) =>
   }, [reload]);
 
   const showing = due.filter((e) => !dismissed.includes(e.id));
-  if (showing.length === 0) return null;
+  if (showing.length === 0 && arrived.length === 0) return null;
 
   function dismiss(id: string) {
     // Only ids still in the window are kept, so the list cannot grow without
@@ -86,6 +97,44 @@ export function ReminderBanner({ onOpenMatter }: { onOpenMatter: (id: string) =>
 
   return (
     <div className="flex flex-col gap-px bg-rule" role="status" aria-live="polite">
+      {/* Good news first, and in the brand colour rather than a warning one: a
+          client who finally sent their documents is the opposite of a problem,
+          and the row that says so should not look like one. */}
+      {arrived.map((a) => (
+        <div key={a.id} className="flex items-center gap-3 bg-brand/10 px-4 py-2.5 sm:px-6">
+          <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 text-sm">
+            <span className="font-bold">שאלון חזר</span>
+            <span className="truncate">{a.form?.name}</span>
+            {a.client && (
+              <button
+                onClick={() => onOpenClient(a.client!.id)}
+                className="font-semibold underline underline-offset-2"
+              >
+                {a.client.name}
+              </button>
+            )}
+            <span className="text-ink-soft">{relativeWhen(a.submitted_at)}</span>
+          </div>
+          <button
+            onClick={async () => {
+              // Removed here rather than after a reload, so the row goes at the
+              // moment of the click.
+              setArrived((list) => list.filter((x) => x.id !== a.id));
+              try {
+                await markIntakeReviewed(a.id);
+              } catch (e) {
+                console.warn("could not mark reviewed", e);
+                void reload();
+              }
+            }}
+            aria-label="סמן כנקרא"
+            className="shrink-0 rounded px-2 py-1 text-sm font-semibold text-ink-soft hover:bg-ink/5"
+          >
+            ראיתי
+          </button>
+        </div>
+      ))}
+
       {showing.map((e) => (
         // Today reads differently from tomorrow, because it is: a hearing this
         // afternoon and one in twenty hours ask for different things.

@@ -120,7 +120,22 @@ export function order(events) {
   return [...events].sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
 }
 
-export function subjectFor(events, now = new Date()) {
+/**
+ * The subject line, which carries whatever is most worth acting on.
+ *
+ * A questionnaire coming back outranks a date: the date will still be there
+ * tomorrow, and the client who finally sent their documents is waiting.
+ */
+export function subjectFor(events, now = new Date(), arrivals = []) {
+  if (arrivals.length > 0 && events.length === 0) {
+    return arrivals.length === 1
+      ? `שאלון חזר: ${arrivals[0].client_name}`
+      : `${arrivals.length} שאלונים חזרו`;
+  }
+  if (arrivals.length > 0) {
+    return `${arrivals.length} שאלונים חזרו · ${events.length} מועדים לפניך`;
+  }
+
   const soonest = order(events)[0];
   const days = dayNumber(new Date(soonest.starts_at)) - dayNumber(now);
   const when = days <= 0 ? "היום" : days === 1 ? "מחר" : `בעוד ${days} ימים`;
@@ -135,7 +150,20 @@ export function subjectFor(events, now = new Date()) {
 const escape = (s) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-export function bodyFor(events, now = new Date()) {
+export function bodyFor(events, now = new Date(), arrivals = []) {
+  const arrivalRows = arrivals
+    .map(
+      (a) => `
+      <tr>
+        <td style="padding:12px 0;border-bottom:1px solid #ddd8cb">
+          <div style="font-size:12px;color:#0e6e6e">שאלון חזר</div>
+          <div style="font-size:16px;font-weight:700;color:#15222a">${escape(a.client_name)}</div>
+          <div style="font-size:13px;color:#4a5d68">${escape(a.form_name ?? "")}</div>
+        </td>
+      </tr>`,
+    )
+    .join("");
+
   const rows = order(events)
     .map((e) => {
       const bits = [whenLine(e, now), e.location, e.matter ? `תיק #${e.matter.ref_no} ${e.matter.name}` : null]
@@ -157,7 +185,7 @@ export function bodyFor(events, now = new Date()) {
   <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #ddd8cb;border-radius:8px;padding:24px">
     <div style="font-size:18px;font-weight:700;color:#0e6e6e;letter-spacing:.5px">LEXA</div>
     <p style="font-size:14px;color:#4a5d68;margin:4px 0 16px">מה מחכה לך</p>
-    <table style="width:100%;border-collapse:collapse">${rows}</table>
+    <table style="width:100%;border-collapse:collapse">${arrivalRows}${rows}</table>
     <p style="font-size:12px;color:#74838c;margin-top:20px;line-height:1.6">
       התזכורת נשלחת רק לכתובת שבבעלות חשבון השליחה, כל עוד לא חובר דומיין למשרד.
       שאר אנשי המשרד רואים את המועדים האלה בראש המסך בתוכנה.
@@ -183,18 +211,41 @@ async function main() {
   });
 
   const due = await db(`events?${query}`);
-  if (due.length === 0) {
-    console.log("Nothing due. No mail sent.");
+
+  // Questionnaires that came back and have not been mailed about. A separate
+  // question from whether the firm has looked at them: reviewed_at belongs to
+  // the app, notified_at to this job, and letting either write the other's
+  // column is how a client's documents go unmentioned in a busy week.
+  const arrivalQuery = new URLSearchParams({
+    select: "id,submitted_at,client:clients(name),form:intake_forms(name)",
+    status: "eq.submitted",
+    notified_at: "is.null",
+    order: "submitted_at.asc",
+    limit: "50",
+  });
+  const arrivedRaw = await db(`client_intakes?${arrivalQuery}`);
+  const arrivals = arrivedRaw.map((a) => ({
+    id: a.id,
+    submitted_at: a.submitted_at,
+    client_name: (Array.isArray(a.client) ? a.client[0] : a.client)?.name ?? "לקוח",
+    form_name: (Array.isArray(a.form) ? a.form[0] : a.form)?.name ?? null,
+  }));
+
+  if (due.length === 0 && arrivals.length === 0) {
+    console.log("Nothing due and nothing arrived. No mail sent.");
     return;
   }
 
   const events = due.map((e) => ({ ...e, matter: Array.isArray(e.matter) ? e.matter[0] : e.matter }));
-  console.log(`${events.length} due: ${events.map((e) => e.title).join(", ")}`);
+  console.log(
+    `${events.length} due: ${events.map((e) => e.title).join(", ") || "-"}; ` +
+      `${arrivals.length} arrived: ${arrivals.map((a) => a.client_name).join(", ") || "-"}`,
+  );
 
   if (!RESEND_KEY) {
     // Useful on its own: it proves the query half works before any key exists.
     console.log("No RESEND_API_KEY — dry run, nothing sent and nothing marked.");
-    console.log(`Subject would be: ${subjectFor(events)}`);
+    console.log(`Subject would be: ${subjectFor(events, new Date(), arrivals)}`);
     return;
   }
 
@@ -204,8 +255,8 @@ async function main() {
     body: JSON.stringify({
       from: FROM,
       to: [TO],
-      subject: subjectFor(events),
-      html: bodyFor(events),
+      subject: subjectFor(events, new Date(), arrivals),
+      html: bodyFor(events, new Date(), arrivals),
     }),
   });
 
@@ -216,14 +267,27 @@ async function main() {
   // Marked only after the send succeeded. The other order loses a reminder
   // permanently the first time Resend has a bad minute, and a hearing warned
   // about zero times is the failure that matters.
-  const ids = events.map((e) => e.id);
-  await db(`events?id=in.(${ids.join(",")})`, {
-    method: "PATCH",
-    headers: { prefer: "return=minimal" },
-    body: JSON.stringify({ reminded_at: new Date().toISOString() }),
-  });
+  const stamp = new Date().toISOString();
 
-  console.log(`Sent to ${TO} and marked ${ids.length} as reminded.`);
+  if (events.length > 0) {
+    await db(`events?id=in.(${events.map((e) => e.id).join(",")})`, {
+      method: "PATCH",
+      headers: { prefer: "return=minimal" },
+      body: JSON.stringify({ reminded_at: stamp }),
+    });
+  }
+
+  if (arrivals.length > 0) {
+    await db(`client_intakes?id=in.(${arrivals.map((a) => a.id).join(",")})`, {
+      method: "PATCH",
+      headers: { prefer: "return=minimal" },
+      body: JSON.stringify({ notified_at: stamp }),
+    });
+  }
+
+  console.log(
+    `Sent to ${TO}; marked ${events.length} reminded and ${arrivals.length} notified.`,
+  );
 }
 
 // Imported by the tests for the pure parts; run only when invoked directly.
