@@ -169,11 +169,31 @@ async function render(bundleId) {
   }
 }
 
+/**
+ * The browser calls this service directly from the app's own origin, so it has
+ * to answer preflight.
+ *
+ * The wildcard is safe here and not laziness: authentication is a bearer token
+ * the caller has to hold, never a cookie, so a hostile page cannot make an
+ * authenticated request on someone's behalf just by being allowed to ask.
+ */
+const CORS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "POST, GET, OPTIONS",
+  "access-control-allow-headers": "authorization, content-type",
+  "access-control-max-age": "3600",
+};
+
 createServer(async (req, res) => {
   const send = (status, body) => {
-    res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
+    res.writeHead(status, { "content-type": "application/json; charset=utf-8", ...CORS });
     res.end(JSON.stringify(body));
   };
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, CORS);
+    return res.end();
+  }
 
   if (req.method === "GET" && req.url === "/health") {
     return send(200, { ok: true, limitBytes: PART_LIMIT_BYTES });
