@@ -13,6 +13,7 @@ import {
   type OrgRole,
 } from "@/lib/invitations";
 import { count } from "@/lib/hebrew";
+import { ExportPanel } from "@/components/export-panel";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
 const INVITABLE: OrgRole[] = ["lawyer", "intern", "secretary"];
@@ -99,7 +100,7 @@ export function TeamScreen() {
       </Card>
 
       {isOwner && invites.length > 0 && (
-        <>
+        <div className="mb-5">
           <h2 className="mb-1.5 text-xs font-bold tracking-wide text-muted">הזמנות פתוחות</h2>
           <Card className="p-0">
             <ul className="flex flex-col divide-y divide-rule">
@@ -108,8 +109,10 @@ export function TeamScreen() {
               ))}
             </ul>
           </Card>
-        </>
+        </div>
       )}
+
+      {isOwner && <ExportPanel />}
     </div>
   );
 }
