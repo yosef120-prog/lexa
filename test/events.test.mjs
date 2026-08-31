@@ -5,7 +5,7 @@
  * a deadline lands on the right day in someone's calendar, which is exactly the
  * kind of thing that is wrong for months before anyone notices.
  */
-import { googleCalendarUrl, daysAway, relativeWhen } from "../src/lib/calendar-format.ts";
+import { googleCalendarUrl, daysAway, relativeWhen, isDue, isMine } from "../src/lib/calendar-format.ts";
 
 let failures = 0;
 let checks = 0;
@@ -68,6 +68,42 @@ const lateTonight = new Date(); lateTonight.setHours(23, 0, 0, 0);
 const earlyTomorrow = new Date(Date.now() + day); earlyTomorrow.setHours(1, 0, 0, 0);
 check("late tonight is still today", daysAway(lateTonight.toISOString()), 0);
 check("early tomorrow is already tomorrow", daysAway(earlyTomorrow.toISOString()), 1);
+
+
+console.log("\ndiary · who gets warned, and when\n");
+
+const HOUR = 60 * 60 * 1000;
+const now = new Date("2026-09-10T09:00:00+03:00");
+const at = (offsetHours) => new Date(now.getTime() + offsetHours * HOUR).toISOString();
+
+const entry = (over) => ({
+  id: "e", kind: "hearing", title: "t", location: null, ends_at: null,
+  all_day: false, matter: null, remind_at: at(-1), starts_at: at(23),
+  created_by: null, ...over,
+});
+
+check("a warning that has opened is showing", isDue(entry(), now), true);
+check("one still ahead of its window is not", isDue(entry({ remind_at: at(1) }), now), false);
+check("an entry with no window set never shows", isDue(entry({ remind_at: null }), now), false);
+check("and it stops once the hearing has started", isDue(entry({ starts_at: at(-1) }), now), false);
+
+// The case that matters on the morning of: a deadline dated today is still
+// today at four in the afternoon, and dropping the warning at midnight would
+// remove it on the one day it is worth having.
+const todayAllDay = { all_day: true, starts_at: "2026-09-10T00:00:00+03:00", remind_at: at(-24) };
+check("an all-day deadline lasts its whole day", isDue(entry(todayAllDay), now), true);
+check("yesterday's does not", isDue(entry({ ...todayAllDay, starts_at: "2026-09-09T00:00:00+03:00" }), now), false);
+
+const ME = "me";
+const led = (lead) => ({ id: "m", ref_no: 1, name: "n", lead_user_id: lead });
+
+check("the lawyer leading the matter is warned", isMine(entry({ matter: led(ME) }), ME), true);
+// The secretary types the date; the lawyer has to be in court. Warning only
+// the author would reach exactly the wrong desk.
+check("so is whoever entered it", isMine(entry({ created_by: ME, matter: led("other") }), ME), true);
+check("a colleague's hearing is not mine", isMine(entry({ matter: led("other") }), ME), false);
+check("a matter nobody leads warns everyone", isMine(entry({ matter: led(null) }), ME), true);
+check("a firm entry belongs to whoever made it", isMine(entry({ created_by: "other" }), ME), false);
 
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures === 0 ? 0 : 1);

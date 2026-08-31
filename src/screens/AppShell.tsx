@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui";
 import { SearchBox } from "@/components/search-box";
+import { ReminderBanner } from "@/components/reminder-banner";
 import { ClientsScreen } from "@/screens/ClientsScreen";
 import { MattersScreen } from "@/screens/MattersScreen";
 import { MatterScreen } from "@/screens/MatterScreen";
@@ -107,6 +108,10 @@ export function AppShell() {
           ))}
         </nav>
       </header>
+
+      {/* Outside main, and under the header on every tab: a hearing tomorrow is
+          not a property of whichever screen happens to be open. */}
+      <ReminderBanner onOpenMatter={openMatterFrom} />
 
       {/* Padded at the bottom so the fixed phone navigation never covers the
           last row of a list. */}

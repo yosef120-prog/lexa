@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { describeDbError } from "@/lib/errors";
-import type { CalendarEvent, EventKind } from "@/lib/calendar-format";
+import { isDue, isMine, type CalendarEvent, type EventKind, type Reminder } from "@/lib/calendar-format";
 
 export * from "@/lib/calendar-format";
 
@@ -22,6 +22,34 @@ export async function listUpcoming(): Promise<CalendarEvent[]> {
     .order("starts_at", { ascending: true });
   if (error) throw new Error(describeDbError(error));
   return normalise(data ?? []);
+}
+
+/**
+ * What is asking for attention right now, for this person.
+ *
+ * The window is filtered in the database because most entries are outside it,
+ * and decided in isDue because the exact edges -- an all-day deadline lasting
+ * its whole day, an entry with no window at all -- are the part worth testing.
+ */
+export async function listDueReminders(userId: string): Promise<Reminder[]> {
+  const { data, error } = await supabase
+    .from("events")
+    .select(
+      "id, kind, title, location, starts_at, ends_at, all_day, remind_at, created_by, matter:matters(id, ref_no, name, lead_user_id)",
+    )
+    .lte("remind_at", new Date().toISOString())
+    .order("starts_at", { ascending: true })
+    .limit(50);
+  if (error) throw new Error(describeDbError(error));
+
+  const rows = (data ?? []).map((row) => {
+    const { matter, ...rest } = row as Omit<Reminder, "matter"> & { matter: unknown };
+    const m = matter as Reminder["matter"][] | Reminder["matter"];
+    return { ...rest, matter: Array.isArray(m) ? (m[0] ?? null) : m } as Reminder;
+  });
+
+  const now = new Date();
+  return rows.filter((e) => isDue(e, now) && isMine(e, userId));
 }
 
 export async function listMatterEvents(matterId: string): Promise<CalendarEvent[]> {

@@ -27,6 +27,53 @@ export type CalendarEvent = {
   matter: { id: string; ref_no: number; name: string } | null;
 };
 
+/** A calendar entry with the two fields that decide who is warned, and when. */
+export type Reminder = CalendarEvent & {
+  remind_at: string | null;
+  created_by: string | null;
+  matter: (CalendarEvent["matter"] & { lead_user_id: string | null }) | null;
+};
+
+/**
+ * Whether an entry is currently asking for attention.
+ *
+ * The window opens at remind_at -- 24 hours before, unless someone said
+ * otherwise -- and closes when the entry is behind us. An all-day deadline
+ * counts for the whole of its day: a deadline "today" is still today at 16:00,
+ * and dropping it at midnight would remove the warning on the morning it
+ * matters most.
+ */
+export function isDue(event: Reminder, now: Date = new Date()): boolean {
+  if (!event.remind_at) return false;
+  if (new Date(event.remind_at) > now) return false;
+  // Compared against the caller's clock rather than through daysAway, which
+  // reads the real one: a function that half ignores the time it was handed
+  // cannot be tested, and would drift from the branch below.
+  if (event.all_day) return startOfDay(new Date(event.starts_at)) >= startOfDay(now);
+  return new Date(event.starts_at) >= now;
+}
+
+function startOfDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/**
+ * Whether this entry is the viewer's to act on.
+ *
+ * Whoever types a hearing date is often the secretary; whoever has to stand up
+ * in court is the lawyer. Warning only the person who created it would reach
+ * exactly the wrong desk, so the lawyer leading the matter is warned too.
+ *
+ * A matter with nobody leading it warns everyone. That is noisy in a large
+ * firm and correct in every firm: an unassigned hearing that belongs to nobody
+ * is worse than one that belongs to all.
+ */
+export function isMine(event: Reminder, userId: string): boolean {
+  if (event.created_by === userId) return true;
+  if (!event.matter) return false;
+  return event.matter.lead_user_id === userId || event.matter.lead_user_id === null;
+}
+
 /** Days from today, negative once the date has passed. */
 export function daysAway(iso: string): number {
   const midnight = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
