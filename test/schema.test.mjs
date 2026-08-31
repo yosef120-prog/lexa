@@ -874,6 +874,14 @@ const chargeOnFeed = await asUser(UID_A, async () =>
 );
 check("the work reached the matter's timeline", chargeOnFeed, 1);
 
+// Hebrew takes the singular for one and drops the numeral: "דקה אחת", never
+// "1 דקות". The timer above ran for a moment, so this is the case every
+// short call hits.
+const chargeBody = await asUser(UID_A, async () =>
+  (await db.query(`select body from public.matter_activity where kind = 'charge'`)).rows[0].body,
+);
+check("and a single minute reads as one", chargeBody, "דקה אחת · ניסוח כתב הגנה");
+
 // --- who may see and touch the money ----------------------------------------
 const internSeesFees = await asUser(UID_C_TIMER, async () =>
   (await db.query(`select id from public.fee_agreements`)).rows.length,
