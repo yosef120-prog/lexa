@@ -178,3 +178,40 @@ export function bundleSize(bundle: FilingBundle): number {
 
 /** נט המשפט refuses anything larger, which is why the renderer has to split. */
 export const NET_HAMISHPAT_LIMIT = 30 * 1024 * 1024;
+
+/**
+ * Asks the renderer to build the PDF.
+ *
+ * The caller's own session token goes with the request. The service verifies it
+ * and re-checks firm membership before it touches anything, because it holds
+ * the one key that can bypass the database's own rules.
+ */
+export async function renderFiling(bundleId: string): Promise<void> {
+  const base = import.meta.env.VITE_RENDERER_URL;
+  if (!base) {
+    throw new Error("שירות ההפקה לא מוגדר. פנה למי שמתחזק את המערכת.");
+  }
+
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("ההתחברות פגה. התחבר שוב.");
+
+  let res: Response;
+  try {
+    res = await fetch(`${base}/build`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ bundleId }),
+    });
+  } catch {
+    throw new Error("לא הצלחנו להגיע לשירות ההפקה. בדוק את החיבור ונסה שוב.");
+  }
+
+  if (!res.ok) {
+    // The service also writes the reason onto the bundle, so the screen has
+    // something to show even if this message is lost.
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 403) throw new Error("אין לך הרשאה להפיק את ההגשה הזו.");
+    throw new Error(body.error ? `ההפקה נכשלה: ${body.error}` : "ההפקה נכשלה.");
+  }
+}

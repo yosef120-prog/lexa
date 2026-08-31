@@ -11,6 +11,7 @@ import {
   moveAppendix,
   NET_HAMISHPAT_LIMIT,
   removeAppendix,
+  renderFiling,
   type FilingBundle,
 } from "@/lib/filing";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
@@ -125,8 +126,8 @@ export function FilingPanel({
 
       {bundles.length > 0 && (
         <p className="border-t border-rule pt-2 text-xs text-muted">
-          הפקת קובץ ההגשה עוד לא זמינה. המערכת אינה מתחברת לנט המשפט — ההגשה עצמה
-          נעשית על ידך, ותאריך ההגשה נרשם כאן ידנית.
+          המערכת מפיקה את הקובץ — שער, תוכן נספחים, מספור רציף ופיצול מעל 30 מ״ב.
+          היא אינה מתחברת לנט המשפט: את ההגשה עצמה אתה מבצע, ואת התאריך רושם כאן.
         </p>
       )}
     </Card>
@@ -265,6 +266,27 @@ function BundleView({
       )}
 
       {error && <ErrorNote>{error}</ErrorNote>}
+
+      {bundle.error && <ErrorNote>{bundle.error}</ErrorNote>}
+
+      {/* Producing the file is separate from filing it: the lawyer uploads the
+          result themselves, then records that they did. */}
+      {(bundle.status === "draft" || bundle.status === "failed") && bundle.main_document_id && (
+        <Button
+          onClick={() => run(() => renderFiling(bundle.id))}
+          disabled={busy}
+        >
+          {busy ? "מפיק..." : bundle.status === "failed" ? "נסה להפיק שוב" : "הפק קובץ הגשה"}
+        </Button>
+      )}
+
+      {bundle.status === "ready" && (
+        <p className="rounded-md bg-brand/10 px-3 py-2 text-sm">
+          הקובץ מוכן — הוא נוסף למסמכי התיק{bundle.page_count && bundle.page_count > 1
+            ? ` ב־${bundle.page_count} חלקים`
+            : ""}. הורד אותו מרשימת המסמכים והעלה לנט המשפט.
+        </p>
+      )}
 
       {bundle.status === "submitted" ? (
         <p className="text-xs text-ink-soft">
