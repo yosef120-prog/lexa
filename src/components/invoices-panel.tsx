@@ -3,6 +3,7 @@ import {
   cancelInvoice,
   createInvoiceFromUnbilled,
   INVOICE_STATUS_LABEL,
+  linkExternalInvoice,
   listInvoiceLines,
   markInvoice,
   type Invoice,
@@ -94,7 +95,8 @@ export function InvoicesPanel({
       {invoices.length > 0 && (
         // Said where the number is, not in a help page nobody opens.
         <p className="border-t border-rule pt-2 text-xs text-muted">
-          זו דרישת תשלום, לא חשבונית מס. את החשבונית עצמה מפיקים במערכת החשבוניות.
+          זו דרישת תשלום, לא חשבונית מס. את החשבונית מפיקים במורנינג או ב‑iCount, ואפשר לרשום
+          כאן את מספרה כדי שהשתיים יהיו מקושרות.
         </p>
       )}
     </Card>
@@ -105,6 +107,7 @@ function InvoiceRow({ invoice, onChanged }: { invoice: Invoice; onChanged: () =>
   const [lines, setLines] = useState<InvoiceLine[] | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [linking, setLinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function expand() {
@@ -185,13 +188,134 @@ function InvoiceRow({ invoice, onChanged }: { invoice: Invoice; onChanged: () =>
                   בטל ושחרר שעות
                 </Small>
               )}
+              {!linking && (
+                <Small onClick={() => setLinking(true)} disabled={busy}>
+                  {invoice.external_invoice_id ? "ערוך קישור לחשבונית" : "קשר לחשבונית מס"}
+                </Small>
+              )}
             </div>
+          )}
+
+          {/* Where the real invoice ended up. The demand and the tax invoice
+              are two documents, and the pair is what an accountant asks for at
+              the end of the year. */}
+          {invoice.external_invoice_id && !linking && (
+            <p className="border-t border-rule pt-1.5">
+              חשבונית מס{" "}
+              {invoice.external_url ? (
+                <a
+                  href={invoice.external_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-brand underline underline-offset-2"
+                >
+                  {invoice.external_invoice_id}
+                </a>
+              ) : (
+                <span className="font-semibold">{invoice.external_invoice_id}</span>
+              )}
+            </p>
+          )}
+
+          {linking && (
+            <ExternalInvoiceForm
+              invoice={invoice}
+              onDone={() => {
+                setLinking(false);
+                onChanged();
+              }}
+              onCancel={() => setLinking(false)}
+            />
           )}
         </div>
       )}
 
       {error && <ErrorNote>{error}</ErrorNote>}
     </li>
+  );
+}
+
+/**
+ * Recording the tax invoice, not issuing one.
+ *
+ * Issuing is a regulated act and belongs to Morning or iCount, exactly as the
+ * brief says. What was missing was the other half: once it has been issued
+ * there, nothing here knew about it, so the demand and the invoice lived in
+ * two systems that never referred to each other. An accountant asking "which
+ * invoice covers this?" had no answer on this screen.
+ */
+function ExternalInvoiceForm({
+  invoice,
+  onDone,
+  onCancel,
+}: {
+  invoice: Invoice;
+  onDone: () => void;
+  onCancel: () => void;
+}) {
+  const [number, setNumber] = useState(invoice.external_invoice_id ?? "");
+  const [url, setUrl] = useState(invoice.external_url ?? "");
+  const [provider, setProvider] = useState("morning");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      await linkExternalInvoice(invoice.id, provider, number, url);
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2 border-t border-rule pt-2">
+      <div className="flex flex-wrap gap-1.5">
+        {(["morning", "icount", "other"] as const).map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => setProvider(p)}
+            className={`rounded px-2 py-0.5 text-xs font-semibold ${
+              provider === p ? "bg-brand text-white" : "bg-surface text-ink-soft"
+            }`}
+          >
+            {p === "morning" ? "מורנינג" : p === "icount" ? "iCount" : "אחר"}
+          </button>
+        ))}
+      </div>
+
+      <input
+        value={number}
+        onChange={(e) => setNumber(e.target.value)}
+        placeholder="מספר חשבונית"
+        dir="ltr"
+        className="rounded-md border border-rule bg-surface px-2 py-1.5 text-xs
+                   outline-none focus:border-brand"
+      />
+      <input
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        placeholder="קישור לחשבונית (לא חובה)"
+        dir="ltr"
+        className="rounded-md border border-rule bg-surface px-2 py-1.5 text-xs
+                   outline-none focus:border-brand"
+      />
+
+      {error && <ErrorNote>{error}</ErrorNote>}
+
+      <div className="flex gap-1.5">
+        <Small onClick={save} disabled={busy || !number.trim()}>
+          {busy ? "שומר..." : "שמור"}
+        </Small>
+        <Small onClick={onCancel} disabled={busy}>
+          ביטול
+        </Small>
+      </div>
+    </div>
   );
 }
 
