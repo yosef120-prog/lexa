@@ -6,12 +6,13 @@ import { CreateFirmScreen } from "@/screens/CreateFirmScreen";
 import { AppShell } from "@/screens/AppShell";
 import { AcceptInviteScreen } from "@/screens/AcceptInviteScreen";
 import { SecondStepScreen } from "@/screens/SecondStepScreen";
+import { IntakeScreen } from "@/screens/IntakeScreen";
 import { NewPasswordScreen } from "@/screens/NewPasswordScreen";
 import "@/styles.css";
 
-/** The one address worth having: the link that brings someone into a firm. */
-function inviteTokenFromUrl(): string | null {
-  return new URLSearchParams(window.location.search).get("invite");
+/** The two addresses worth having: joining a firm, and answering a firm. */
+function tokenFromUrl(name: string): string | null {
+  return new URLSearchParams(window.location.search).get(name);
 }
 
 /**
@@ -22,7 +23,8 @@ function inviteTokenFromUrl(): string | null {
 function App() {
   const { session, membership, loading, awaitingSecondStep, refreshAssurance, recovering, recoveryDone } =
     useAuth();
-  const [invite, setInvite] = useState(inviteTokenFromUrl);
+  const [invite, setInvite] = useState(() => tokenFromUrl("invite"));
+  const [intake, setIntake] = useState(() => tokenFromUrl("intake"));
 
   // Dropping the token from the address bar once it is spent keeps a spent
   // link out of the browser history and out of a reload.
@@ -30,6 +32,16 @@ function App() {
     window.history.replaceState({}, "", window.location.pathname);
     setInvite(null);
   }
+
+  function clearIntake() {
+    window.history.replaceState({}, "", window.location.pathname);
+    setIntake(null);
+  }
+
+  // Ahead of everything, including the loading state: the person holding this
+  // link has no account, so waiting for a session lookup that will find nothing
+  // would show them a spinner for no reason.
+  if (intake) return <IntakeScreen token={intake} onLeave={clearIntake} />;
 
   if (loading) {
     return (

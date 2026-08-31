@@ -4,6 +4,7 @@ import { Button } from "@/components/ui";
 import { SearchBox } from "@/components/search-box";
 import { ReminderBanner } from "@/components/reminder-banner";
 import { ClientsScreen } from "@/screens/ClientsScreen";
+import { ClientScreen } from "@/screens/ClientScreen";
 import { MattersScreen } from "@/screens/MattersScreen";
 import { MatterScreen } from "@/screens/MatterScreen";
 import { DiaryScreen } from "@/screens/DiaryScreen";
@@ -43,17 +44,26 @@ export function AppShell() {
   const { membership, session, signOut } = useAuth();
   const [tab, setTab] = useState<Tab>("matters");
   const [openMatter, setOpenMatter] = useState<string | null>(null);
+  const [openClient, setOpenClient] = useState<string | null>(null);
 
   if (!membership) return null;
 
   function go(next: Tab) {
     setTab(next);
     setOpenMatter(null);
+    setOpenClient(null);
   }
 
   function openMatterFrom(id: string) {
     setTab("matters");
+    setOpenClient(null);
     setOpenMatter(id);
+  }
+
+  function openClientFrom(id: string) {
+    setTab("clients");
+    setOpenMatter(null);
+    setOpenClient(id);
   }
 
   return (
@@ -116,8 +126,14 @@ export function AppShell() {
       {/* Padded at the bottom so the fixed phone navigation never covers the
           last row of a list. */}
       <main className="flex-1 pb-20 sm:pb-0">
-        {tab === "clients" ? (
-          <ClientsScreen />
+        {tab === "clients" && openClient ? (
+          <ClientScreen
+            clientId={openClient}
+            onBack={() => setOpenClient(null)}
+            onOpenMatter={openMatterFrom}
+          />
+        ) : tab === "clients" ? (
+          <ClientsScreen onOpenClient={openClientFrom} />
         ) : tab === "team" ? (
           <TeamScreen />
         ) : tab === "tasks" && !openMatter ? (

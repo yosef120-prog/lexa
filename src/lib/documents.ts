@@ -35,13 +35,31 @@ export function formatSize(bytes: number | null): string {
 }
 
 export async function listDocuments(matterId: string): Promise<DocumentGroup[]> {
-  const { data, error } = await supabase
-    .from("documents")
-    .select(
-      "id, storage_path, filename, mime, size_bytes, version_group_id, version_no, scan_status, created_at, uploader:profiles!documents_uploaded_by_fkey(full_name, email)",
-    )
-    .eq("matter_id", matterId)
-    .order("version_no", { ascending: false });
+  return readDocuments((q) => q.eq("matter_id", matterId));
+}
+
+/**
+ * What is attached to the person rather than to a file.
+ *
+ * Intake documents arrive before any matter exists, so they hang off the
+ * client. Same table, same versioning, same download — only the filter
+ * differs, which is the whole reason the documents table was opened up rather
+ * than duplicated.
+ */
+export async function listClientDocuments(clientId: string): Promise<DocumentGroup[]> {
+  return readDocuments((q) => q.eq("client_id", clientId).is("matter_id", null));
+}
+
+type DocQuery = ReturnType<ReturnType<typeof supabase.from>["select"]>;
+
+async function readDocuments(narrow: (q: DocQuery) => DocQuery): Promise<DocumentGroup[]> {
+  const { data, error } = await narrow(
+    supabase
+      .from("documents")
+      .select(
+        "id, storage_path, filename, mime, size_bytes, version_group_id, version_no, scan_status, created_at, uploader:profiles!documents_uploaded_by_fkey(full_name, email)",
+      ),
+  ).order("version_no", { ascending: false });
   if (error) throw new Error(describeDbError(error));
 
   const rows = (data ?? []).map((row) => {
@@ -76,7 +94,9 @@ export async function listDocuments(matterId: string): Promise<DocumentGroup[]> 
  */
 export async function uploadDocument(input: {
   org_id: string;
-  matter_id: string;
+  /** One of these two. A document on a client has no matter yet. */
+  matter_id?: string;
+  client_id?: string;
   file: File;
   /** Set to add a version to an existing document rather than start a new one. */
   version_group_id?: string;
@@ -96,7 +116,10 @@ export async function uploadDocument(input: {
   }
 
   // The first segment is the firm id: that is what the storage policy reads.
-  const path = `${input.org_id}/${input.matter_id}/${crypto.randomUUID()}`;
+  // The second only has to be stable and unique; "client" keeps a person's own
+  // documents apart from any matter's when reading the bucket directly.
+  const scope = input.matter_id ?? `client/${input.client_id}`;
+  const path = `${input.org_id}/${scope}/${crypto.randomUUID()}`;
 
   const signed = await supabase.storage.from(BUCKET).createSignedUploadUrl(path);
   if (signed.error) throw new Error(translateStorageError(signed.error.message));
@@ -108,7 +131,8 @@ export async function uploadDocument(input: {
 
   const { error } = await supabase.from("documents").insert({
     org_id: input.org_id,
-    matter_id: input.matter_id,
+    matter_id: input.matter_id ?? null,
+    client_id: input.client_id ?? null,
     storage_path: path,
     filename: file.name,
     mime: file.type || null,

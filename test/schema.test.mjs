@@ -1640,6 +1640,66 @@ try {
 check("but one belonging to neither is refused", nowhere.includes("documents_belongs_somewhere"), true);
 
 
+// A file the client attached becomes a document on their card, and only
+// through the definer function: anonymous callers can write into a bucket and
+// cannot write a row in documents, so this is the single path in.
+const fileIntake = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.client_intakes (org_id, client_id, form_id)
+    values ('${orgA}', '${clientA}', '${intakeForm}') returning token
+  `)).rows[0].token,
+);
+const fileQuestion = await asUser(UID_A, async () =>
+  (await db.query(`
+    select id from public.intake_questions where form_id = '${intakeForm}' and type = 'file'
+  `)).rows[0].id,
+);
+
+await asAnon(async () => {
+  await db.query(`
+    select public.submit_intake('${fileIntake}',
+      ('[{"question_id": "${fileQuestion}", "json": [{"path": "${fileIntake}/abc",
+         "filename": "תעודת זהות.pdf", "mime": "application/pdf", "size": 1024}]}]')::jsonb)
+  `);
+});
+
+const arrived = await asUser(UID_A, async () =>
+  (await db.query(`
+    select filename, bucket, client_id, matter_id
+    from public.documents where intake_id = (
+      select id from public.client_intakes where token = '${fileIntake}'
+    )
+  `)).rows[0],
+);
+check("an attached file lands on the client card", arrived.filename, "תעודת זהות.pdf");
+check("in the bucket an outsider could write to", arrived.bucket, "intake-uploads");
+check("belonging to the client", arrived.client_id, clientA);
+check("and to no matter", arrived.matter_id, null);
+
+// A path outside the token's own folder is refused a second time here. The
+// storage policy already refuses it on the way in; these answer different
+// questions, and only one of them is about what ends up in the record.
+const otherIntake = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.client_intakes (org_id, client_id, form_id)
+    values ('${orgA}', '${clientA}', '${intakeForm}') returning token
+  `)).rows[0].token,
+);
+let stolen = "";
+try {
+  await asAnon(async () => {
+    await db.query(`
+      select public.submit_intake('${otherIntake}',
+        ('[{"question_id": "${fileQuestion}", "json": [{"path": "${fileIntake}/abc",
+           "filename": "של מישהו אחר.pdf"}]}]')::jsonb)
+    `);
+  });
+} catch (e) {
+  stolen = e.message;
+}
+check("a file from another intake's folder is refused", stolen.includes("FILE_OUTSIDE_INTAKE"), true);
+
+
 // ---------------------------------------------------------------- embeds
 //
 // PostgREST will not follow a foreign key into the auth schema, so a column

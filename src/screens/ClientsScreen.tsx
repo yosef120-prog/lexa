@@ -16,7 +16,7 @@ const SOURCE_LABEL: Record<string, string> = {
   party_other: "צד נוסף",
 };
 
-export function ClientsScreen() {
+export function ClientsScreen({ onOpenClient }: { onOpenClient: (id: string) => void }) {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -82,7 +82,14 @@ export function ClientsScreen() {
             <tbody>
               {clients.map((c) => (
                 <tr key={c.id} className="border-t border-rule">
-                  <td className="p-3 font-semibold">{c.name}</td>
+                  <td className="p-3 font-semibold">
+                    <button
+                      onClick={() => onOpenClient(c.id)}
+                      className="text-brand underline-offset-2 hover:underline"
+                    >
+                      {c.name}
+                    </button>
+                  </td>
                   <td className="p-3 text-ink-soft" dir="ltr">{c.national_id ?? "—"}</td>
                   <td className="p-3 text-ink-soft" dir="ltr">{c.phone ?? "—"}</td>
                 </tr>
