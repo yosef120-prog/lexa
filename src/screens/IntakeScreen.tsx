@@ -5,11 +5,13 @@ import {
   openIntake,
   submitIntake,
   uploadIntakeFile,
+  uploadSignature,
   type AnswerPayload,
   type PublicIntake,
   type PublicQuestion,
   type UploadedFile,
 } from "@/lib/intake-public";
+import { SignaturePad } from "@/components/signature-pad";
 import { Button, Card, ErrorNote } from "@/components/ui";
 
 /**
@@ -68,7 +70,7 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
 
   const missing = asked.filter((q) => {
     if (!q.required) return false;
-    if (q.type === "file") return (files[q.id] ?? []).length === 0;
+    if (q.type === "file" || q.type === "signature") return (files[q.id] ?? []).length === 0;
     const v = values[q.id];
     return v === undefined || v === null || v === "" || (Array.isArray(v) && v.length === 0);
   });
@@ -91,6 +93,8 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
           case "multi_choice":
             return { question_id: q.id, json: (v as string[]) ?? [] };
           case "file":
+            return { question_id: q.id, json: files[q.id] ?? [] };
+          case "signature":
             return { question_id: q.id, json: files[q.id] ?? [] };
           case "consent":
             // Recorded as the text they agreed to, not as "true". A year from
@@ -306,6 +310,36 @@ function Question({
         </div>
       );
     }
+
+    case "signature":
+      return (
+        <div>
+          {label}
+          <SignaturePad
+            onChange={async (png) => {
+              if (!png) {
+                onFiles([]);
+                return;
+              }
+              setUploading(true);
+              try {
+                onFiles([await uploadSignature(token, png)]);
+              } catch (err) {
+                onError(err instanceof Error ? err.message : String(err));
+              } finally {
+                setUploading(false);
+              }
+            }}
+          />
+          {/* Said where the signature is made, not in a footer. The person
+              signing should know what is being kept alongside it. */}
+          <p className="mt-1 text-xs text-muted">
+            {uploading
+              ? "שומר את החתימה..."
+              : "החתימה נשמרת יחד עם התאריך, השעה וכתובת ה‑IP שממנה נשלח הטופס."}
+          </p>
+        </div>
+      );
 
     case "consent":
       return (

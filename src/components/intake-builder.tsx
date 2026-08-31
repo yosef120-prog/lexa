@@ -12,7 +12,6 @@ import {
   updateQuestion,
   type IntakeForm,
   type IntakeQuestion,
-  type QuestionType,
 } from "@/lib/intake";
 import {
   draftFrom,
@@ -20,83 +19,8 @@ import {
   QuestionEditor,
   type QuestionDraft,
 } from "@/components/question-editor";
+import { TEMPLATES, type Template } from "@/lib/intake-templates";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
-
-type Starter = {
-  type: QuestionType;
-  label: string;
-  help?: string;
-  body?: string;
-  required: boolean;
-  options?: string[];
-  /** 1-based index into this list — the position the parent will be given. */
-  dependsOn?: number;
-  dependsValue?: string;
-};
-
-/**
- * A starting point, not a finished questionnaire.
- *
- * These are the questions a first meeting turns on. Every one can be reworded,
- * reordered or removed, which is the part that was missing: a questionnaire a
- * firm cannot shape is mine rather than theirs, and it has to sound like them.
- */
-const STARTER: Starter[] = [
-  { type: "text", label: "שם מלא כפי שמופיע בתעודת הזהות", required: true },
-  { type: "text", label: "מספר תעודת זהות", required: true },
-  { type: "date", label: "תאריך לידה", required: false },
-  { type: "text", label: "כתובת מלאה", required: true },
-  { type: "text", label: "טלפון", required: true },
-  { type: "text", label: "אימייל", required: false },
-  { type: "file", label: "צילום תעודת זהות", help: "אפשר לצלם מהטלפון", required: true },
-  { type: "long_text", label: "ספר בקצרה במה מדובר", required: true },
-  {
-    type: "single_choice",
-    label: "איך הגעת אלינו?",
-    options: ["המלצה", "חיפוש באינטרנט", "לקוח קודם", "אחר"],
-    required: false,
-  },
-  { type: "yes_no", label: "האם יש הליך משפטי תלוי ועומד בעניין הזה?", required: true },
-  {
-    type: "text",
-    label: "באיזה בית משפט, ומה מספר התיק?",
-    required: false,
-    dependsOn: 10,
-    dependsValue: "yes",
-  },
-  { type: "yes_no", label: "האם פנית לעורך דין אחר בעניין הזה?", required: true },
-  {
-    type: "text",
-    label: "שם עורך הדין, והאם הייצוג הסתיים",
-    // A second firm on one matter is a conflict question and a fee question at
-    // once, which is why it belongs before the first meeting rather than in it.
-    help: "חשוב לדעת לפני שמתחילים",
-    required: false,
-    dependsOn: 12,
-    dependsValue: "yes",
-  },
-  {
-    type: "yes_no",
-    label: "האם יש מועד קרוב שאנחנו צריכים לדעת עליו?",
-    help: "דיון, מועד להגשה, תפוגת התיישנות",
-    required: true,
-  },
-  { type: "date", label: "מתי?", required: false, dependsOn: 14, dependsValue: "yes" },
-  {
-    type: "file",
-    label: "מסמכים רלוונטיים — חוזים, מכתבים, כל דבר שקיבלת",
-    required: false,
-  },
-  {
-    type: "consent",
-    label: "אני מאשר/ת",
-    body:
-      "הפרטים שמסרתי נכונים ומלאים למיטב ידיעתי. ידוע לי שמסירת הפרטים אינה יוצרת " +
-      "יחסי עורך דין–לקוח, ושייצוג ייקבע רק לאחר פגישה ובכפוף להסכם שכר טרחה בכתב " +
-      "ולבדיקת ניגוד עניינים.",
-    required: true,
-  },
-];
 
 export function IntakeBuilder() {
   const { membership } = useAuth();
@@ -126,21 +50,17 @@ export function IntakeBuilder() {
     void reload();
   }, [reload]);
 
-  async function createStarter() {
+  async function createFrom(template: Template) {
     if (!membership) return;
     setBusy(true);
     setError(null);
     try {
-      const formId = await createForm(
-        membership.org_id,
-        "שאלון פתיחת תיק",
-        "כמה פרטים ומסמכים לפני הפגישה הראשונה. אפשר למלא מהטלפון.",
-      );
+      const formId = await createForm(membership.org_id, template.name, template.intro);
 
       // Two passes: a condition points at a question that has no id until the
       // first pass has created it.
       const created: string[] = [];
-      for (const [i, q] of STARTER.entries()) {
+      for (const [i, q] of template.questions.entries()) {
         created.push(
           await addQuestion({
             org_id: membership.org_id,
@@ -155,7 +75,7 @@ export function IntakeBuilder() {
           }),
         );
       }
-      for (const [i, q] of STARTER.entries()) {
+      for (const [i, q] of template.questions.entries()) {
         if (!q.dependsOn) continue;
         await updateQuestion(created[i], {
           type: q.type,
@@ -193,9 +113,22 @@ export function IntakeBuilder() {
       {error && <ErrorNote>{error}</ErrorNote>}
 
       {forms.length === 0 ? (
-        <Button onClick={createStarter} disabled={busy} className="self-start">
-          {busy ? "מכין..." : "צור שאלון פתיחה"}
-        </Button>
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-ink-soft">התחל מאחד מאלה, ושנה כל מה שצריך:</p>
+          {TEMPLATES.map((t) => (
+            <div key={t.key} className="flex items-center justify-between gap-3 rounded-md bg-ground p-3">
+              <div className="flex min-w-0 flex-col">
+                <span className="text-sm font-semibold">{t.name}</span>
+                <span className="text-xs text-muted">
+                  {t.questions.length} שאלות · {t.note}
+                </span>
+              </div>
+              <Button onClick={() => createFrom(t)} disabled={busy} className="shrink-0">
+                {busy ? "מכין..." : "צור"}
+              </Button>
+            </div>
+          ))}
+        </div>
       ) : (
         <>
           {forms.length > 1 && (
@@ -300,6 +233,18 @@ export function IntakeBuilder() {
               >
                 ערוך שם והקדמה
               </button>
+              {/* A firm doing both conveyancing and litigation needs two
+                  questionnaires, not one that tries to be both. */}
+              {TEMPLATES.filter((t) => !forms.some((f) => f.name === t.name)).map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => createFrom(t)}
+                  disabled={busy}
+                  className="text-sm text-ink-soft underline underline-offset-2 hover:text-ink disabled:opacity-50"
+                >
+                  הוסף גם: {t.name}
+                </button>
+              ))}
             </div>
           )}
         </>

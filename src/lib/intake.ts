@@ -18,7 +18,8 @@ export type QuestionType =
   | "multi_choice"
   | "date"
   | "file"
-  | "consent";
+  | "consent"
+  | "signature";
 
 export const QUESTION_TYPE_LABEL: Record<QuestionType, string> = {
   text: "טקסט קצר",
@@ -30,6 +31,7 @@ export const QUESTION_TYPE_LABEL: Record<QuestionType, string> = {
   date: "תאריך",
   file: "קובץ",
   consent: "הצהרה לאישור",
+  signature: "חתימה",
 };
 
 export type IntakeQuestion = {
@@ -340,6 +342,12 @@ export function answerText(question: IntakeQuestion, answer: IntakeAnswer | unde
       return Array.isArray(answer.value_json) && answer.value_json.length > 0
         ? (answer.value_json as string[]).join(" · ")
         : "—";
+    case "consent":
+      // What was recorded is the wording accepted, which can be long. The list
+      // says that it was accepted; the wording is in the answer itself.
+      return answer.value_text ? "אושר" : "—";
+    case "signature":
+      return Array.isArray(answer.value_json) && answer.value_json.length > 0 ? "נחתם" : "—";
     case "file":
       // The files themselves are documents on the client card by now; this is
       // only the count, so the answer list reads consistently.

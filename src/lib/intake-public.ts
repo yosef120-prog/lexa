@@ -115,6 +115,18 @@ export async function uploadIntakeFile(token: string, file: File): Promise<Uploa
   return { path, filename: file.name, mime: file.type || "", size: file.size };
 }
 
+/**
+ * The signature, sent the same way a photograph is.
+ *
+ * Reusing the file path means it inherits the storage policy, the token check
+ * and the row that lands on the client card. A separate route for it would be
+ * a second thing to secure for no gain.
+ */
+export async function uploadSignature(token: string, png: Blob): Promise<UploadedFile> {
+  const file = new File([png], "חתימה.png", { type: "image/png" });
+  return uploadIntakeFile(token, file);
+}
+
 export type AnswerPayload = {
   question_id: string;
   text?: string | null;
