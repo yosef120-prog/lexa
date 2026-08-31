@@ -70,3 +70,15 @@ export async function createMatter(input: {
   });
   if (error) throw new Error(describeDbError(error));
 }
+
+/** Marking a matter deleted. Its timeline and its billing stay where they are. */
+export async function softDeleteMatter(id: string): Promise<void> {
+  const { error } = await supabase.rpc("soft_delete_matter", { p_matter_id: id });
+  if (error) {
+    if (error.message.includes("FORBIDDEN")) {
+      throw new Error("רק בעלים או עורך דין יכולים למחוק תיק.");
+    }
+    if (error.message.includes("NOT_FOUND")) throw new Error("התיק כבר נמחק.");
+    throw new Error(describeDbError(error));
+  }
+}

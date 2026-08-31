@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { listClients, type Client } from "@/lib/clients";
+import { listClients, softDeleteClient, type Client } from "@/lib/clients";
 import { listMatters, STATUS_LABEL, type Matter } from "@/lib/matters";
 import { listClientDocuments, type DocumentGroup } from "@/lib/documents";
 import { listClientIntakes, type ClientIntake } from "@/lib/intake";
 import { IntakePanel } from "@/components/intake-panel";
 import { ClientDocuments } from "@/components/client-documents";
+import { DeleteButton } from "@/components/delete-button";
 import { Button, Card, ErrorNote } from "@/components/ui";
 
 /**
@@ -83,6 +84,22 @@ export function ClientScreen({
           <Fact label="טלפון" value={client.phone} ltr />
           <Fact label="אימייל" value={client.email} ltr />
         </dl>
+
+        <div className="border-t border-rule pt-3">
+          <DeleteButton
+            label="מחק לקוח"
+            what={client.name}
+            consequence={
+              matters.length > 0
+                ? `הלקוח יירד מהרשימה. ${matters.length} התיקים שלו, המסמכים והחיובים נשארים כפי שהם.`
+                : "הלקוח יירד מהרשימה. המסמכים והרישומים שלו נשארים כפי שהם."
+            }
+            onDelete={async () => {
+              await softDeleteClient(clientId);
+              onBack();
+            }}
+          />
+        </div>
       </Card>
 
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[1fr_22rem]">

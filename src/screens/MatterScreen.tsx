@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth";
-import { STATUS_LABEL, type Matter, type MatterStatus } from "@/lib/matters";
+import { softDeleteMatter, STATUS_LABEL, type Matter, type MatterStatus } from "@/lib/matters";
 import {
   addNote,
   addParty,
@@ -32,6 +32,7 @@ import { listInvoices, type Invoice } from "@/lib/invoices";
 import { InvoicesPanel } from "@/components/invoices-panel";
 import { listBundles, type FilingBundle } from "@/lib/filing";
 import { FilingPanel } from "@/components/filing-panel";
+import { DeleteButton } from "@/components/delete-button";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
 const KIND_LABEL: Record<Activity["kind"], string> = {
@@ -121,7 +122,7 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
         ← כל התיקים
       </Button>
 
-      <MatterHeader matter={matter} onChanged={reload} />
+      <MatterHeader matter={matter} onChanged={reload} onDeleted={onBack} />
 
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[1fr_20rem]">
         <section className="flex flex-col gap-4">
@@ -159,7 +160,15 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
   );
 }
 
-function MatterHeader({ matter, onChanged }: { matter: Matter; onChanged: () => void }) {
+function MatterHeader({
+  matter,
+  onChanged,
+  onDeleted,
+}: {
+  matter: Matter;
+  onChanged: () => void;
+  onDeleted: () => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -209,6 +218,18 @@ function MatterHeader({ matter, onChanged }: { matter: Matter; onChanged: () => 
       </div>
 
       {error && <ErrorNote>{error}</ErrorNote>}
+
+      <div className="border-t border-rule pt-3">
+        <DeleteButton
+          label="מחק תיק"
+          what={`תיק #${matter.ref_no} ${matter.name}`}
+          consequence="התיק יירד מהרשימה. ציר הזמן, המסמכים והחיובים נשארים במסד ואינם נמחקים."
+          onDelete={async () => {
+            await softDeleteMatter(matter.id);
+            onDeleted();
+          }}
+        />
+      </div>
     </Card>
   );
 }

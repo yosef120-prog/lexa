@@ -2,10 +2,12 @@ import { useState, type ChangeEvent } from "react";
 import {
   formatSize,
   getDownloadUrl,
+  softDeleteDocument,
   uploadDocument,
   type DocumentGroup,
   type DocumentRow,
 } from "@/lib/documents";
+import { DeleteButton } from "@/components/delete-button";
 import { Card, ErrorNote } from "@/components/ui";
 
 /**
@@ -66,7 +68,7 @@ export function ClientDocuments({
       ) : (
         <ul className="flex flex-col divide-y divide-rule">
           {groups.map((g) => (
-            <DocRow key={g.version_group_id} group={g} />
+            <DocRow key={g.version_group_id} group={g} onChanged={onChanged} />
           ))}
         </ul>
       )}
@@ -74,7 +76,7 @@ export function ClientDocuments({
   );
 }
 
-function DocRow({ group }: { group: DocumentGroup }) {
+function DocRow({ group, onChanged }: { group: DocumentGroup; onChanged: () => void }) {
   const [error, setError] = useState<string | null>(null);
 
   async function open(doc: DocumentRow) {
@@ -98,6 +100,16 @@ function DocRow({ group }: { group: DocumentGroup }) {
           {latest.filename}
         </button>
         <span className="shrink-0 text-xs text-muted">{formatSize(latest.size_bytes)}</span>
+        <DeleteButton
+          small
+          label="מחק"
+          what={latest.filename}
+          consequence="המסמך יירד מהכרטיס. הקובץ עצמו נשמר, כי מסמך שהוסר עשוי עדיין להידרש."
+          onDelete={async () => {
+            await softDeleteDocument(latest.id);
+            onChanged();
+          }}
+        />
       </div>
       <span className="text-xs text-muted">
         {new Date(latest.created_at).toLocaleDateString("he-IL")}

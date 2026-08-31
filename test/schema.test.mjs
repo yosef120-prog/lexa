@@ -1700,6 +1700,47 @@ try {
 check("a file from another intake's folder is refused", stolen.includes("FILE_OUTSIDE_INTAKE"), true);
 
 
+// Deleting a document. The other soft deletes have existed since their tables
+// did; this one was missing, so a file uploaded to the wrong client could not
+// be taken off their card by anyone.
+const docToRemove = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.documents (org_id, client_id, storage_path, filename)
+    values ('${orgA}', '${clientA}', '${orgA}/client/x9', 'בטעות.pdf')
+    returning id
+  `)).rows[0].id,
+);
+await asUser(UID_A, async () => {
+  await db.query(`select public.soft_delete_document('${docToRemove}')`);
+});
+check("a removed document leaves the card", await asUser(UID_A, async () =>
+  (await db.query(`select count(*)::int as n from public.documents where id = '${docToRemove}'`)).rows[0].n,
+), 0);
+
+// Gone from the card is not gone from the database — a document withdrawn may
+// still be something the firm has to produce.
+//
+// Read outside RLS on purpose. Asking as a member would count zero either way,
+// because the read policy hides anything deleted, so the check would pass
+// without proving the row survived. It has to be asked from where the policy
+// does not apply.
+const stillOnDisk = (await db.query(`
+  select count(*)::int as n from public.documents
+  where id = '${docToRemove}' and deleted_at is not null
+`)).rows[0].n;
+check("but the row survives, marked deleted", stillOnDisk, 1);
+
+let removeTwice = "";
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`select public.soft_delete_document('${docToRemove}')`);
+  });
+} catch (e) {
+  removeTwice = e.message;
+}
+check("removing it again says so plainly", removeTwice.includes("NOT_FOUND"), true);
+
+
 // ---------------------------------------------------------------- embeds
 //
 // PostgREST will not follow a foreign key into the auth schema, so a column

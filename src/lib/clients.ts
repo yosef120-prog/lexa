@@ -72,3 +72,23 @@ export async function createClient(input: {
   });
   if (error) throw new Error(describeDbError(error));
 }
+
+const DELETE_TROUBLE: Record<string, string> = {
+  NOT_FOUND: "הלקוח כבר נמחק.",
+  FORBIDDEN: "רק בעלים או עורך דין יכולים למחוק לקוח.",
+};
+
+/**
+ * Marking a client deleted.
+ *
+ * Not a removal: matters, invoices and audit entries still point at them, and
+ * a law firm's record of who it acted for is not something to erase. The
+ * client stops appearing; everything that happened stays true.
+ */
+export async function softDeleteClient(id: string): Promise<void> {
+  const { error } = await supabase.rpc("soft_delete_client", { p_client_id: id });
+  if (error) {
+    const named = Object.keys(DELETE_TROUBLE).find((k) => error.message.includes(k));
+    throw new Error(named ? DELETE_TROUBLE[named] : describeDbError(error));
+  }
+}

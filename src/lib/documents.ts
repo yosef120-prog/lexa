@@ -171,3 +171,20 @@ function translateStorageError(message: string): string {
   console.error("storage error", message);
   return "העלאת הקובץ נכשלה. נסה שוב.";
 }
+
+/**
+ * Taking a document off a card.
+ *
+ * The bytes stay in storage. Removing them is a different decision with
+ * different consequences — a document withdrawn may still be something the
+ * firm has to produce later — and marking the row is what deleting means
+ * everywhere else in this schema.
+ */
+export async function softDeleteDocument(id: string): Promise<void> {
+  const { error } = await supabase.rpc("soft_delete_document", { p_document_id: id });
+  if (error) {
+    if (error.message.includes("FORBIDDEN")) throw new Error("אין לך הרשאה למחוק מסמכים.");
+    if (error.message.includes("NOT_FOUND")) throw new Error("המסמך כבר נמחק.");
+    throw new Error(describeDbError(error));
+  }
+}
