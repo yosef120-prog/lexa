@@ -25,6 +25,37 @@ const TO = process.env.REMINDER_RECIPIENT;
 // arrangement this script is built for.
 const FROM = "LEXA <onboarding@resend.dev>";
 
+/**
+ * The firm's clock, which is not the runner's.
+ *
+ * This job runs on a machine in UTC. A hearing entered at 11:00 in Tel Aviv is
+ * stored as 08:00Z, and "he-IL" chooses the language, not the timezone — so
+ * the first mail this script ever sent announced a hearing at 08:00. The right
+ * number for London, and useless to a lawyer due in court at eleven.
+ *
+ * Every date this file turns into words goes through here. When LEXA has firms
+ * outside Israel, this becomes a column on the organisation; until then it is
+ * one constant, named, rather than an accident of where the job happens to run.
+ */
+const ZONE = process.env.REMINDER_TIMEZONE || "Asia/Jerusalem";
+
+/**
+ * Which day an instant falls on, counted in the firm's zone.
+ *
+ * "Tomorrow" is a calendar question, so it cannot be answered by subtracting
+ * hours: a hearing at 00:15 in Tel Aviv is the previous evening in UTC, and a
+ * runner counting its own days would call it today.
+ */
+function dayNumber(date) {
+  const ymd = new Intl.DateTimeFormat("en-CA", {
+    timeZone: ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+  return Math.round(Date.parse(`${ymd}T00:00:00Z`) / 86_400_000);
+}
+
 const KIND_LABEL = {
   hearing: "דיון",
   deadline: "מועד אחרון",
@@ -66,17 +97,21 @@ async function db(path, init = {}) {
 export function whenLine(event, now = new Date()) {
   const start = new Date(event.starts_at);
   const date = start.toLocaleDateString("he-IL", {
+    timeZone: ZONE,
     weekday: "long",
     day: "numeric",
     month: "long",
   });
 
-  const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  const days = Math.round((midnight(start) - midnight(now)) / 86_400_000);
+  const days = dayNumber(start) - dayNumber(now);
   const near = days === 0 ? "היום" : days === 1 ? "מחר" : `בעוד ${days} ימים`;
 
   if (event.all_day) return `${near} · ${date}`;
-  const time = start.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
+  const time = start.toLocaleTimeString("he-IL", {
+    timeZone: ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
   return `${near} · ${date} · ${time}`;
 }
 
@@ -86,9 +121,8 @@ export function order(events) {
 }
 
 export function subjectFor(events, now = new Date()) {
-  const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const soonest = order(events)[0];
-  const days = Math.round((midnight(new Date(soonest.starts_at)) - midnight(now)) / 86_400_000);
+  const days = dayNumber(new Date(soonest.starts_at)) - dayNumber(now);
   const when = days <= 0 ? "היום" : days === 1 ? "מחר" : `בעוד ${days} ימים`;
 
   // The subject line is what gets read on a lock screen, so it carries the

@@ -24,12 +24,13 @@ function check(label, actual, expected) {
 
 console.log("\nreminder mail · what it says\n");
 
-// Built from a local midnight rather than written with an offset: these compare
-// calendar days, so a literal would assert the machine sits in Israel and pass
-// here while failing on the build runner. That has already happened once.
-const now = new Date(2026, 8, 10, 8, 0, 0);
+// Written as instants with an explicit offset, never built from the machine's
+// own calendar. The script pins itself to the firm's zone on purpose, so these
+// have to name the moment rather than let the runner decide which one it was —
+// September 2026 is IDT, so +03:00 is what the courthouse clock reads.
+const now = new Date("2026-09-10T08:00:00+03:00");
 const dayAfter = (days, h = 9, m = 30) =>
-  new Date(2026, 8, 10 + days, h, m, 0).toISOString();
+  new Date(`2026-09-${String(10 + days).padStart(2, "0")}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00+03:00`).toISOString();
 
 const hearing = (over = {}) => ({
   id: "a",
@@ -85,6 +86,27 @@ check("and the text still survives", bodyFor([nasty], now).includes("&lt;script&
 check(
   "the mail admits it reached only one address",
   bodyFor([hearing()], now).includes("רק לכתובת שבבעלות חשבון השליחה"),
+  true,
+);
+
+// The hearing that came back wrong.
+//
+// A hearing entered at 11:00 in Tel Aviv is stored as 08:00Z, and the job runs
+// on a machine in UTC. "he-IL" chooses the language, not the clock, so the mail
+// went out saying 08:00 -- the right number for London and useless to a lawyer
+// due in court. The zone has to be named, and named as the firm's rather than
+// whichever one the runner happens to boot in.
+const inCourtAt11 = hearing({ starts_at: "2026-09-01T08:00:00Z" });
+const evening = new Date("2026-08-31T20:00:00Z");
+check("a hearing keeps Israeli time on a UTC machine", whenLine(inCourtAt11, evening).includes("11:00"), true);
+check("and is not reported in the runner's zone", whenLine(inCourtAt11, evening).includes("08:00"), false);
+
+// Just past midnight in Tel Aviv is still the previous evening in UTC. Counting
+// days on the runner's calendar would call tomorrow's hearing "today".
+const justAfterMidnight = hearing({ starts_at: "2026-09-01T22:15:00Z" });
+check(
+  "days are counted on the firm's calendar",
+  whenLine(justAfterMidnight, new Date("2026-09-01T20:00:00Z")).startsWith("מחר"),
   true,
 );
 
