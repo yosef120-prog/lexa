@@ -1,0 +1,82 @@
+name: Deploy
+
+# The site is static, so publishing it is just a build and an upload. Pages is
+# free without a time limit, which is the whole reason it was chosen: the
+# project runs on no infrastructure budget until a firm is paying.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# A deploy that started should finish; a queued one behind it is stale.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The schema tests run against an in-process Postgres and need nothing
+      # else, so a broken migration stops the deploy rather than reaching the
+      # firm.
+      - run: npm test
+
+      # Vite silently builds a site with undefined configuration, and the
+      # result is a white screen that says nothing. Better to stop here and say
+      # exactly what is missing.
+      - name: Check the build configuration is present
+        env:
+          URL: ${{ vars.VITE_SUPABASE_URL }}
+          KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          RENDERER: ${{ vars.VITE_RENDERER_URL }}
+        run: |
+          missing=""
+          [ -n "$URL" ]      || missing="$missing VITE_SUPABASE_URL"
+          [ -n "$KEY" ]      || missing="$missing VITE_SUPABASE_ANON_KEY"
+          [ -n "$RENDERER" ] || missing="$missing VITE_RENDERER_URL"
+          if [ -n "$missing" ]; then
+            echo "Missing repository variables:$missing"
+            echo "Add them under Settings -> Secrets and variables -> Actions -> Variables."
+            exit 1
+          fi
+
+      - run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          VITE_RENDERER_URL: ${{ vars.VITE_RENDERER_URL }}
+
+      # enablement: true turns Pages on the first time this runs, so the repo
+      # needs no visit to its settings.
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

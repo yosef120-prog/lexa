@@ -38,7 +38,9 @@ export type Member = {
 };
 
 export function inviteLink(token: string): string {
-  return `${window.location.origin}/?invite=${token}`;
+  // BASE_URL rather than a bare slash: the published site sits under a path,
+  // and a link to the origin root would land on a 404, not on the invitation.
+  return `${window.location.origin}${import.meta.env.BASE_URL}?invite=${token}`;
 }
 
 export async function listMembers(): Promise<Member[]> {
