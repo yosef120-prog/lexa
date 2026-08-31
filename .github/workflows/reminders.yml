@@ -1,0 +1,32 @@
+name: Reminders
+
+# 06:00 UTC is 09:00 in Israel through the summer and 08:00 in winter. A digest
+# that lands with the morning coffee is the point; the hour it drifts by twice
+# a year is not worth a timezone library in a cron expression.
+#
+# GitHub queues scheduled runs and can start them late under load, which is
+# fine here — a reminder is a day's notice, not a minute's.
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # No npm ci: the script has no dependencies, and a scheduled job that
+      # installs a package tree to send one email is a job that breaks on a
+      # Tuesday for reasons unrelated to email.
+      - run: node scripts/send-reminders.mjs
+        env:
+          SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          REMINDER_RECIPIENT: ${{ secrets.REMINDER_RECIPIENT }}

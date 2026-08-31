@@ -1,0 +1,201 @@
+/**
+ * The daily reminder mail.
+ *
+ * Runs on a schedule, finds diary entries whose warning window has opened and
+ * that have not been mailed, sends one digest, and marks them sent.
+ *
+ * It goes to one address — the one that owns the Resend account. That is not a
+ * design choice, it is Resend's rule for anyone sending without a verified
+ * domain, and the mail says so in its own footer rather than letting the reader
+ * assume their colleagues got a copy too. Connecting a domain is what turns
+ * this into the feature the brief actually describes; nothing else here changes
+ * when that happens.
+ *
+ * No dependencies on purpose: fetch is built in, and a scheduled job that
+ * installs a tree of packages to send one email is a job that breaks on a
+ * Tuesday for reasons unrelated to email.
+ */
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const RESEND_KEY = process.env.RESEND_API_KEY;
+const TO = process.env.REMINDER_RECIPIENT;
+
+// Resend's shared sender. Only reaches the account owner, which is exactly the
+// arrangement this script is built for.
+const FROM = "LEXA <onboarding@resend.dev>";
+
+const KIND_LABEL = {
+  hearing: "דיון",
+  deadline: "מועד אחרון",
+  meeting: "פגישה",
+  other: "אחר",
+};
+
+function required(name, value) {
+  if (!value) {
+    console.error(`Missing ${name}. Add it under Settings → Secrets and variables → Actions.`);
+    process.exit(1);
+  }
+  return value;
+}
+
+async function db(path, init = {}) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...init,
+    headers: {
+      apikey: SERVICE_KEY,
+      authorization: `Bearer ${SERVICE_KEY}`,
+      "content-type": "application/json",
+      ...init.headers,
+    },
+  });
+  if (!res.ok) {
+    // The body carries the reason; the status alone never has.
+    throw new Error(`${path} → ${res.status}: ${await res.text()}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
+/**
+ * How a date reads in the mail.
+ *
+ * An all-day deadline is a day and is written as one. A hearing is a moment,
+ * and the time is the part somebody acts on, so it is not dropped.
+ */
+export function whenLine(event, now = new Date()) {
+  const start = new Date(event.starts_at);
+  const date = start.toLocaleDateString("he-IL", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+
+  const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((midnight(start) - midnight(now)) / 86_400_000);
+  const near = days === 0 ? "היום" : days === 1 ? "מחר" : `בעוד ${days} ימים`;
+
+  if (event.all_day) return `${near} · ${date}`;
+  const time = start.toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" });
+  return `${near} · ${date} · ${time}`;
+}
+
+/** Soonest first: the mail is read from the top and rarely to the bottom. */
+export function order(events) {
+  return [...events].sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
+}
+
+export function subjectFor(events, now = new Date()) {
+  const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const soonest = order(events)[0];
+  const days = Math.round((midnight(new Date(soonest.starts_at)) - midnight(now)) / 86_400_000);
+  const when = days <= 0 ? "היום" : days === 1 ? "מחר" : `בעוד ${days} ימים`;
+
+  // The subject line is what gets read on a lock screen, so it carries the
+  // thing itself rather than the word "reminder".
+  return events.length === 1
+    ? `${KIND_LABEL[soonest.kind] ?? "מועד"} ${when}: ${soonest.title}`
+    : `${events.length} מועדים לפניך · הקרוב ${when}`;
+}
+
+const escape = (s) =>
+  String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+export function bodyFor(events, now = new Date()) {
+  const rows = order(events)
+    .map((e) => {
+      const bits = [whenLine(e, now), e.location, e.matter ? `תיק #${e.matter.ref_no} ${e.matter.name}` : null]
+        .filter(Boolean)
+        .map(escape)
+        .join(" · ");
+      return `
+      <tr>
+        <td style="padding:12px 0;border-bottom:1px solid #ddd8cb">
+          <div style="font-size:12px;color:#74838c">${escape(KIND_LABEL[e.kind] ?? "מועד")}</div>
+          <div style="font-size:16px;font-weight:700;color:#15222a">${escape(e.title)}</div>
+          <div style="font-size:13px;color:#4a5d68">${bits}</div>
+        </td>
+      </tr>`;
+    })
+    .join("");
+
+  return `<div dir="rtl" style="font-family:Arial,Helvetica,sans-serif;background:#f3f1ea;padding:24px">
+  <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #ddd8cb;border-radius:8px;padding:24px">
+    <div style="font-size:18px;font-weight:700;color:#0e6e6e;letter-spacing:.5px">LEXA</div>
+    <p style="font-size:14px;color:#4a5d68;margin:4px 0 16px">מה מחכה לך</p>
+    <table style="width:100%;border-collapse:collapse">${rows}</table>
+    <p style="font-size:12px;color:#74838c;margin-top:20px;line-height:1.6">
+      התזכורת נשלחת רק לכתובת שבבעלות חשבון השליחה, כל עוד לא חובר דומיין למשרד.
+      שאר אנשי המשרד רואים את המועדים האלה בראש המסך בתוכנה.
+    </p>
+  </div>
+</div>`;
+}
+
+async function main() {
+  required("SUPABASE_URL", SUPABASE_URL);
+  required("SUPABASE_SERVICE_ROLE_KEY", SERVICE_KEY);
+  required("REMINDER_RECIPIENT", TO);
+
+  const now = new Date().toISOString();
+  const query = new URLSearchParams({
+    select: "id,kind,title,location,starts_at,all_day,matter:matters(ref_no,name)",
+    deleted_at: "is.null",
+    reminded_at: "is.null",
+    remind_at: `lte.${now}`,
+    starts_at: `gte.${now}`,
+    order: "starts_at.asc",
+    limit: "50",
+  });
+
+  const due = await db(`events?${query}`);
+  if (due.length === 0) {
+    console.log("Nothing due. No mail sent.");
+    return;
+  }
+
+  const events = due.map((e) => ({ ...e, matter: Array.isArray(e.matter) ? e.matter[0] : e.matter }));
+  console.log(`${events.length} due: ${events.map((e) => e.title).join(", ")}`);
+
+  if (!RESEND_KEY) {
+    // Useful on its own: it proves the query half works before any key exists.
+    console.log("No RESEND_API_KEY — dry run, nothing sent and nothing marked.");
+    console.log(`Subject would be: ${subjectFor(events)}`);
+    return;
+  }
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { authorization: `Bearer ${RESEND_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      from: FROM,
+      to: [TO],
+      subject: subjectFor(events),
+      html: bodyFor(events),
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Resend → ${res.status}: ${await res.text()}`);
+  }
+
+  // Marked only after the send succeeded. The other order loses a reminder
+  // permanently the first time Resend has a bad minute, and a hearing warned
+  // about zero times is the failure that matters.
+  const ids = events.map((e) => e.id);
+  await db(`events?id=in.(${ids.join(",")})`, {
+    method: "PATCH",
+    headers: { prefer: "return=minimal" },
+    body: JSON.stringify({ reminded_at: new Date().toISOString() }),
+  });
+
+  console.log(`Sent to ${TO} and marked ${ids.length} as reminded.`);
+}
+
+// Imported by the tests for the pure parts; run only when invoked directly.
+if (process.argv[1]?.endsWith("send-reminders.mjs")) {
+  main().catch((e) => {
+    console.error(e.message);
+    process.exit(1);
+  });
+}
