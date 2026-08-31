@@ -6,6 +6,7 @@ import { CreateFirmScreen } from "@/screens/CreateFirmScreen";
 import { AppShell } from "@/screens/AppShell";
 import { AcceptInviteScreen } from "@/screens/AcceptInviteScreen";
 import { SecondStepScreen } from "@/screens/SecondStepScreen";
+import { NewPasswordScreen } from "@/screens/NewPasswordScreen";
 import "@/styles.css";
 
 /** The one address worth having: the link that brings someone into a firm. */
@@ -19,7 +20,8 @@ function inviteTokenFromUrl(): string | null {
  * pages worth addressing than this.
  */
 function App() {
-  const { session, membership, loading, awaitingSecondStep, refreshAssurance } = useAuth();
+  const { session, membership, loading, awaitingSecondStep, refreshAssurance, recovering, recoveryDone } =
+    useAuth();
   const [invite, setInvite] = useState(inviteTokenFromUrl);
 
   // Dropping the token from the address bar once it is spent keeps a spent
@@ -36,6 +38,9 @@ function App() {
       </div>
     );
   }
+  // Ahead of the invitation too: someone arriving on a reset link came to
+  // change a password, whatever else is in the address bar.
+  if (recovering) return <NewPasswordScreen onDone={recoveryDone} />;
   if (invite) return <AcceptInviteScreen token={invite} onDone={clearInvite} />;
   if (!session) return <AuthScreen />;
   // Ahead of the firm and the shell both: a session that has not answered the

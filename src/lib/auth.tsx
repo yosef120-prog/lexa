@@ -19,8 +19,15 @@ type AuthState = {
    * rather than checked per screen: it gates the whole app, so one answer.
    */
   awaitingSecondStep: boolean;
+  /**
+   * True from the moment a reset link is opened until a new password is saved.
+   * A recovery link produces a real session, so without this the app would let
+   * someone straight in and never ask for the password they came to change.
+   */
+  recovering: boolean;
   refreshMembership: () => Promise<void>;
   refreshAssurance: () => Promise<void>;
+  recoveryDone: () => void;
   signOut: () => Promise<void>;
 };
 
@@ -70,14 +77,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [membership, setMembership] = useState<Membership | null>(null);
   const [assurance, setAssurance] = useState<Assurance | null>(null);
   const [loading, setLoading] = useState(true);
+  const [recovering, setRecovering] = useState(false);
 
   useEffect(() => {
     let active = true;
 
     // onAuthStateChange fires immediately with the restored session, so it
     // covers the initial load as well as later sign-in and sign-out.
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, next) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, next) => {
       if (!active) return;
+      if (event === "PASSWORD_RECOVERY") setRecovering(true);
       setSession(next);
 
       // Assurance first. The membership query is harmless, but ordering the
@@ -98,6 +107,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     membership,
     loading,
     awaitingSecondStep: assurance !== null && needsCode(assurance),
+    recovering,
+    recoveryDone: () => setRecovering(false),
     refreshMembership: async () => setMembership(await loadMembership()),
     refreshAssurance: async () => setAssurance(await readAssurance()),
     signOut: async () => {

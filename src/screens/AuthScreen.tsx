@@ -14,13 +14,14 @@ function translateAuthError(message: string): string {
 }
 
 export function AuthScreen() {
-  const [mode, setMode] = useState<"signin" | "signup">("signup");
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signup");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmSent, setConfirmSent] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -28,7 +29,16 @@ export function AuthScreen() {
     setError(null);
 
     try {
-      if (mode === "signup") {
+      if (mode === "forgot") {
+        // The link has to come back to this deployment, under its own path:
+        // the site does not sit at a domain root, and a reset that lands on a
+        // 404 is a reset that did not happen.
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}${import.meta.env.BASE_URL}`,
+        });
+        if (error) throw error;
+        setResetSent(true);
+      } else if (mode === "signup") {
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
@@ -47,6 +57,29 @@ export function AuthScreen() {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (resetSent) {
+    return (
+      <Centered>
+        <Card className="flex flex-col gap-3 text-center">
+          <h1 className="text-xl font-bold">נשלח קישור לאיפוס</h1>
+          <p className="text-sm text-ink-soft">
+            אם קיים חשבון עבור <span className="font-semibold" dir="ltr">{email}</span>, נשלח אליו
+            קישור לבחירת סיסמה חדשה. הקישור תקף לשעה.
+          </p>
+          {/* Worth saying: the same click that resets a password also confirms
+              an address that was never confirmed, which is the other reason
+              someone finds themselves locked out. */}
+          <p className="text-xs text-muted">
+            אם ההרשמה מעולם לא אומתה — הקישור הזה גם יאמת אותה.
+          </p>
+          <Button variant="ghost" onClick={() => { setResetSent(false); setMode("signin"); }}>
+            חזרה להתחברות
+          </Button>
+        </Card>
+      </Centered>
+    );
   }
 
   if (confirmSent) {
@@ -77,8 +110,14 @@ export function AuthScreen() {
         <Card>
           <form onSubmit={submit} className="flex flex-col gap-4">
             <h2 className="text-lg font-bold">
-              {mode === "signup" ? "פתיחת חשבון" : "התחברות"}
+              {mode === "signup" ? "פתיחת חשבון" : mode === "forgot" ? "איפוס סיסמה" : "התחברות"}
             </h2>
+
+            {mode === "forgot" && (
+              <p className="-mt-2 text-sm text-ink-soft">
+                הקלד את כתובת האימייל שלך ונשלח אליה קישור לבחירת סיסמה חדשה.
+              </p>
+            )}
 
             {mode === "signup" && (
               <Field
@@ -100,21 +139,41 @@ export function AuthScreen() {
               required
             />
 
-            <Field
-              label="סיסמה"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete={mode === "signup" ? "new-password" : "current-password"}
-              hint={mode === "signup" ? "לפחות 6 תווים" : undefined}
-              required
-            />
+            {mode !== "forgot" && (
+              <Field
+                label="סיסמה"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete={mode === "signup" ? "new-password" : "current-password"}
+                hint={mode === "signup" ? "לפחות 6 תווים" : undefined}
+                required
+              />
+            )}
 
             {error && <ErrorNote>{error}</ErrorNote>}
 
             <Button type="submit" disabled={busy}>
-              {busy ? "רגע..." : mode === "signup" ? "פתח חשבון" : "התחבר"}
+              {busy
+                ? "רגע..."
+                : mode === "signup"
+                  ? "פתח חשבון"
+                  : mode === "forgot"
+                    ? "שלח קישור"
+                    : "התחבר"}
             </Button>
+
+            {/* On the sign-in screen, where somebody has just failed to get in
+                — not buried in a menu they would have to go looking for. */}
+            {mode === "signin" && (
+              <button
+                type="button"
+                onClick={() => { setMode("forgot"); setError(null); }}
+                className="self-start text-sm text-ink-soft underline underline-offset-2 hover:text-ink"
+              >
+                שכחת סיסמה?
+              </button>
+            )}
           </form>
         </Card>
 
