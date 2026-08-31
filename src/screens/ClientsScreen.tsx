@@ -37,7 +37,7 @@ export function ClientsScreen() {
   }, [reload]);
 
   return (
-    <div className="mx-auto w-full max-w-3xl p-6">
+    <div className="mx-auto w-full max-w-3xl p-4 sm:p-6">
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">לקוחות</h1>
@@ -69,8 +69,8 @@ export function ClientsScreen() {
       )}
 
       {clients.length > 0 && (
-        <Card className="overflow-hidden p-0">
-          <table className="w-full text-sm">
+        <Card className="overflow-x-auto p-0">
+          <table className="w-full min-w-[28rem] text-sm">
             <thead className="bg-ground text-xs text-ink-soft">
               <tr>
                 <th className="p-3 text-start font-semibold">שם</th>

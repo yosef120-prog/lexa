@@ -104,7 +104,7 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
   if (!matter) return null;
 
   return (
-    <div className="mx-auto w-full max-w-5xl p-6">
+    <div className="mx-auto w-full max-w-5xl p-4 sm:p-6">
       <Button variant="ghost" onClick={onBack} className="mb-3 px-0">
         ← כל התיקים
       </Button>

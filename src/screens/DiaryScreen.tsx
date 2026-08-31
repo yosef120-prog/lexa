@@ -42,7 +42,7 @@ export function DiaryScreen({ onOpenMatter }: { onOpenMatter: (id: string) => vo
   const ahead = events.filter((e) => daysAway(e.starts_at) >= 0);
 
   return (
-    <div className="mx-auto w-full max-w-3xl p-6">
+    <div className="mx-auto w-full max-w-3xl p-4 sm:p-6">
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">יומן</h1>

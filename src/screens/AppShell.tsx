@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui";
+import { SearchBox } from "@/components/search-box";
 import { ClientsScreen } from "@/screens/ClientsScreen";
 import { MattersScreen } from "@/screens/MattersScreen";
 import { MatterScreen } from "@/screens/MatterScreen";
@@ -22,9 +23,14 @@ const TABS: Array<{ id: Tab; label: string }> = [
 ];
 
 /**
- * The signed-in shell. Navigation is local state rather than routes: there is
- * nothing yet worth linking to. Stage 4 brings the matter screen, and with it a
- * real reason for URLs.
+ * The signed-in shell.
+ *
+ * Navigation is local state rather than routes: nothing here is worth a link
+ * yet. When sharing a matter with a colleague becomes a thing people do, that
+ * is the moment for URLs.
+ *
+ * The same tabs appear along the top on a desktop and along the bottom on a
+ * phone — where a thumb is, and where the brief asked for them.
  */
 export function AppShell() {
   const { membership, session, signOut } = useAuth();
@@ -33,15 +39,28 @@ export function AppShell() {
 
   if (!membership) return null;
 
+  function go(next: Tab) {
+    setTab(next);
+    setOpenMatter(null);
+  }
+
+  function openMatterFrom(id: string) {
+    setTab("matters");
+    setOpenMatter(id);
+  }
+
   return (
     <div className="flex min-h-full flex-col">
       <header className="border-b border-rule bg-surface">
-        <div className="flex items-center justify-between px-6 pt-4">
-          <div className="flex items-baseline gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-3 sm:px-6 sm:pt-4">
+          <div className="flex items-baseline gap-2 sm:gap-3">
             <span className="text-lg font-bold tracking-tight">LEXA</span>
-            <span className="text-sm text-muted">{membership.org_name}</span>
+            <span className="truncate text-sm text-muted">{membership.org_name}</span>
           </div>
-          <div className="flex items-center gap-4">
+
+          {/* The identity line is the first thing to go on a narrow screen: it
+              tells you who you are, which you already know. */}
+          <div className="hidden items-center gap-4 md:flex">
             <span className="text-sm text-ink-soft">
               {session?.user.email}
               <span className="mx-1.5 text-rule">·</span>
@@ -53,11 +72,15 @@ export function AppShell() {
           </div>
         </div>
 
-        <nav className="flex gap-1 px-6">
+        <div className="px-4 pb-3 pt-2 sm:px-6">
+          <SearchBox onOpenMatter={openMatterFrom} onOpenClients={() => go("clients")} />
+        </div>
+
+        <nav className="hidden gap-1 px-6 sm:flex">
           {TABS.map((t) => (
             <button
               key={t.id}
-              onClick={() => { setTab(t.id); setOpenMatter(null); }}
+              onClick={() => go(t.id)}
               aria-current={tab === t.id ? "page" : undefined}
               className={`-mb-px border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors ${
                 tab === t.id
@@ -71,22 +94,44 @@ export function AppShell() {
         </nav>
       </header>
 
-      <main className="flex-1">
+      {/* Padded at the bottom so the fixed phone navigation never covers the
+          last row of a list. */}
+      <main className="flex-1 pb-20 sm:pb-0">
         {tab === "clients" ? (
           <ClientsScreen />
         ) : tab === "diary" && !openMatter ? (
-          <DiaryScreen
-            onOpenMatter={(id) => { setTab("matters"); setOpenMatter(id); }}
-          />
+          <DiaryScreen onOpenMatter={openMatterFrom} />
         ) : openMatter ? (
           <MatterScreen matterId={openMatter} onBack={() => setOpenMatter(null)} />
         ) : (
-          <MattersScreen
-            onGoToClients={() => setTab("clients")}
-            onOpenMatter={setOpenMatter}
-          />
+          <MattersScreen onGoToClients={() => go("clients")} onOpenMatter={setOpenMatter} />
         )}
       </main>
+
+      <nav
+        className="fixed inset-x-0 bottom-0 z-30 flex border-t border-rule bg-surface
+                   pb-[env(safe-area-inset-bottom)] sm:hidden"
+        aria-label="ניווט"
+      >
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => go(t.id)}
+            aria-current={tab === t.id ? "page" : undefined}
+            className={`flex-1 border-t-2 py-3 text-sm font-semibold ${
+              tab === t.id ? "border-brand text-brand" : "border-transparent text-muted"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+        <button
+          onClick={signOut}
+          className="flex-1 border-t-2 border-transparent py-3 text-sm font-semibold text-muted"
+        >
+          יציאה
+        </button>
+      </nav>
     </div>
   );
 }

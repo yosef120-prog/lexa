@@ -41,7 +41,7 @@ export function MattersScreen({
   }, [reload]);
 
   return (
-    <div className="mx-auto w-full max-w-3xl p-6">
+    <div className="mx-auto w-full max-w-3xl p-4 sm:p-6">
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">תיקים</h1>
@@ -92,8 +92,8 @@ export function MattersScreen({
             <Card key={m.id} className="p-0">
               <button
                 onClick={() => onOpenMatter(m.id)}
-                className="flex w-full items-start justify-between gap-4 p-6 text-start
-                           transition-colors hover:bg-ground/60"
+                className="flex w-full items-start justify-between gap-4 p-4 text-start
+                           transition-colors hover:bg-ground/60 sm:p-6"
               >
               <div className="flex flex-col gap-1">
                 <div className="flex items-baseline gap-2">
