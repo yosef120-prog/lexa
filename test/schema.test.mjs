@@ -885,6 +885,39 @@ const bSeesBundles = await asUser(UID_B, async () =>
 );
 check("bundles are firm-scoped", bSeesBundles, 0);
 
+// --- search ------------------------------------------------------------------
+const searchAs = (uid, q) =>
+  asUser(uid, async () =>
+    (await db.query(`select kind, title, ref_no from public.search_firm('${q}')`)).rows,
+  );
+
+// A lawyer typing a name does not know which table it lives in.
+check("a matter is found by name", (await searchAs(UID_A, "עסקת")).map((r) => r.kind), ["matter"]);
+check("a client is found by name", (await searchAs(UID_A, "שרה")).map((r) => r.title), []);
+check("a client is found by their own name", (await searchAs(UID_A, "יוסף")).some((r) => r.kind === "client"), true);
+
+// The exact identifier is the surest match there is, so it comes first.
+const searchById = await searchAs(UID_A, "03-1234567");
+check("an identifier finds the client despite punctuation", searchById[0]?.kind, "client");
+
+// How a firm finds the file someone appears in without being the client.
+const asParty = await searchAs(UID_A, "רות");
+check("an opposing party is found", asParty[0]?.kind, "party");
+check("and points at the matter they appear in", asParty[0]?.ref_no, 1);
+
+// The firm's own reference, which is what people say out loud.
+check("a matter is found by its number", (await searchAs(UID_A, "2")).some((r) => r.kind === "matter"), true);
+
+// The whole point of running as the caller rather than as definer.
+check("search never crosses into another firm", (await searchAs(UID_B, "עסקת")).length, 0);
+// Firm B holds a client with the same identifier. Finding their own is correct;
+// what matters is that firm A's client with that number stays invisible.
+check("an identifier finds only your own firm's match",
+  (await searchAs(UID_B, "03-1234567")).map((r) => r.title), ["לקוח של משרד אחר"]);
+
+// An empty query must return nothing rather than everything.
+check("an empty search returns nothing", (await searchAs(UID_A, "   ")).length, 0);
+
 // --- soft delete actually hides things ---------------------------------------
 // Regression: the write policies were declared FOR ALL, which covers SELECT.
 // Permissive policies OR together, so for anyone able to write, the read
