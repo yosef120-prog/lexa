@@ -12,6 +12,7 @@ import {
   type Member,
   type OrgRole,
 } from "@/lib/invitations";
+import { count } from "@/lib/hebrew";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
 const INVITABLE: OrgRole[] = ["lawyer", "intern", "secretary"];
@@ -54,7 +55,7 @@ export function TeamScreen() {
         <div>
           <h1 className="text-2xl font-bold">המשרד</h1>
           <p className="text-sm text-muted">
-            {loading ? "טוען..." : `${members.length} משתמשים`}
+            {loading ? "טוען..." : count(members.length, "משתמש אחד", "משתמשים")}
           </p>
         </div>
         {isOwner && !inviting && <Button onClick={() => setInviting(true)}>הזמן משתמש</Button>}

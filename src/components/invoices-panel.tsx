@@ -8,7 +8,7 @@ import {
   type Invoice,
   type InvoiceLine,
 } from "@/lib/invoices";
-import { formatMoney, lineValue, type TimeEntry } from "@/lib/billing";
+import { formatMoney, formatMoneyExact, lineValue, type TimeEntry } from "@/lib/billing";
 import { Button, Card, ErrorNote } from "@/components/ui";
 
 const STATUS_LOOK: Record<Invoice["status"], string> = {
@@ -141,7 +141,7 @@ function InvoiceRow({ invoice, onChanged }: { invoice: Invoice; onChanged: () =>
             {INVOICE_STATUS_LABEL[invoice.status]}
           </span>
         </span>
-        <span className="font-semibold tabular-nums">{formatMoney(invoice.total)}</span>
+        <span className="font-semibold tabular-nums">{formatMoneyExact(invoice.total)}</span>
       </button>
 
       {open && (
@@ -154,18 +154,18 @@ function InvoiceRow({ invoice, onChanged }: { invoice: Invoice; onChanged: () =>
                 <li key={l.id} className="flex justify-between gap-3">
                   <span className="min-w-0 flex-1 truncate">{l.description}</span>
                   <span className="shrink-0 tabular-nums text-muted">
-                    {l.quantity} ש׳ × {formatMoney(l.unit_price)}
+                    {l.quantity} ש׳ × {formatMoneyExact(l.unit_price)}
                   </span>
-                  <span className="shrink-0 tabular-nums font-semibold">{formatMoney(l.amount)}</span>
+                  <span className="shrink-0 tabular-nums font-semibold">{formatMoneyExact(l.amount)}</span>
                 </li>
               ))}
             </ul>
           )}
 
           <dl className="flex flex-col gap-0.5 border-t border-rule pt-1.5">
-            <Row label="לפני מע״מ" value={formatMoney(invoice.subtotal)} />
-            <Row label={`מע״מ ${invoice.vat_rate}%`} value={formatMoney(invoice.vat)} />
-            <Row label="סה״כ" value={formatMoney(invoice.total)} strong />
+            <Row label="לפני מע״מ" value={formatMoneyExact(invoice.subtotal)} />
+            <Row label={`מע״מ ${invoice.vat_rate}%`} value={formatMoneyExact(invoice.vat)} />
+            <Row label="סה״כ" value={formatMoneyExact(invoice.total)} strong />
           </dl>
 
           {invoice.status !== "cancelled" && (

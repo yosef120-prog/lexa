@@ -96,7 +96,7 @@ export function AcceptInviteScreen({ token, onDone }: { token: string; onDone: (
 
       {wrongAccount ? (
         <p className="text-sm text-danger">
-          אתה מחובר כ<span dir="ltr">{session.user.email}</span>, וההזמנה נשלחה ל
+          אתה מחובר כ־<span dir="ltr">{session.user.email}</span>, וההזמנה נשלחה ל־
           <span dir="ltr">{peek?.email}</span>. התנתק והתחבר עם הכתובת הנכונה.
         </p>
       ) : (

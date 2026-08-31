@@ -44,7 +44,9 @@ export function inviteLink(token: string): string {
 export async function listMembers(): Promise<Member[]> {
   const { data, error } = await supabase
     .from("org_members")
-    .select("user_id, role, status, joined_at, profile:profiles(full_name, email)")
+    // Named, because a membership now points at profiles twice — the member and
+    // whoever invited them — and an unqualified embed is ambiguous.
+    .select("user_id, role, status, joined_at, profile:profiles!org_members_user_id_fkey(full_name, email)")
     .order("joined_at", { ascending: true });
   if (error) throw new Error(describeDbError(error));
   return (data ?? []).map((row) => {

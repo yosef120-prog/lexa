@@ -7,6 +7,7 @@ import {
   type Client,
   type ConflictHit,
 } from "@/lib/clients";
+import { count } from "@/lib/hebrew";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -42,7 +43,7 @@ export function ClientsScreen() {
         <div>
           <h1 className="text-2xl font-bold">לקוחות</h1>
           <p className="text-sm text-muted">
-            {loading ? "טוען..." : `${clients.length} לקוחות במשרד`}
+            {loading ? "טוען..." : count(clients.length, "לקוח אחד במשרד", "לקוחות במשרד")}
           </p>
         </div>
         {!adding && <Button onClick={() => setAdding(true)}>לקוח חדש</Button>}

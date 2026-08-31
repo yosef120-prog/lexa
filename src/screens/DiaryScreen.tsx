@@ -9,6 +9,7 @@ import {
   type CalendarEvent,
 } from "@/lib/events";
 import { EventForm } from "@/components/event-form";
+import { count } from "@/lib/hebrew";
 import { Button, Card, ErrorNote } from "@/components/ui";
 
 /**
@@ -47,7 +48,7 @@ export function DiaryScreen({ onOpenMatter }: { onOpenMatter: (id: string) => vo
         <div>
           <h1 className="text-2xl font-bold">יומן</h1>
           <p className="text-sm text-muted">
-            {loading ? "טוען..." : `${ahead.length} מועדים לפנינו`}
+            {loading ? "טוען..." : count(ahead.length, "מועד אחד לפנינו", "מועדים לפנינו")}
           </p>
         </div>
         {!adding && <Button onClick={() => setAdding(true)}>מועד חדש</Button>}

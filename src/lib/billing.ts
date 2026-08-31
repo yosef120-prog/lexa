@@ -40,11 +40,26 @@ export function formatMinutes(minutes: number): string {
   return `${h}:${String(m).padStart(2, "0")} ש׳`;
 }
 
+/** For estimates read at a glance: the agorot are noise while work is running. */
 export function formatMoney(amount: number, currency = "ILS"): string {
   return new Intl.NumberFormat("he-IL", {
     style: "currency",
     currency,
     maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+/**
+ * For amounts someone will act on. A demand is compared against a bank
+ * transfer, so rounding 11.80 up to 12 is not a tidier number, it is the wrong
+ * one.
+ */
+export function formatMoneyExact(amount: number, currency = "ILS"): string {
+  return new Intl.NumberFormat("he-IL", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(amount);
 }
 

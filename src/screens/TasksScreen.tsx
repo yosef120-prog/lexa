@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { isOverdue, listOpenTasks, type Task } from "@/lib/tasks";
 import { NewTaskForm, TaskRow } from "@/components/tasks-panel";
+import { count } from "@/lib/hebrew";
 import { Button, Card, ErrorNote } from "@/components/ui";
 
 /**
@@ -43,8 +44,8 @@ export function TasksScreen({ onOpenMatter }: { onOpenMatter: (id: string) => vo
             {loading
               ? "טוען..."
               : late.length > 0
-                ? `${tasks.length} פתוחות · ${late.length} באיחור`
-                : `${tasks.length} פתוחות`}
+                ? `${count(tasks.length, "משימה אחת פתוחה", "פתוחות")} · ${late.length} באיחור`
+                : count(tasks.length, "משימה אחת פתוחה", "פתוחות")}
           </p>
         </div>
         {!adding && <Button onClick={() => setAdding(true)}>משימה חדשה</Button>}

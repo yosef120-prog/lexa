@@ -8,6 +8,7 @@ import {
   STATUS_LABEL,
   type Matter,
 } from "@/lib/matters";
+import { count } from "@/lib/hebrew";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
 export function MattersScreen({
@@ -46,7 +47,7 @@ export function MattersScreen({
         <div>
           <h1 className="text-2xl font-bold">תיקים</h1>
           <p className="text-sm text-muted">
-            {loading ? "טוען..." : `${matters.length} תיקים`}
+            {loading ? "טוען..." : count(matters.length, "תיק אחד", "תיקים")}
           </p>
         </div>
         {!adding && clients.length > 0 && (

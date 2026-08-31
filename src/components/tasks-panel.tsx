@@ -12,8 +12,10 @@ function personName(p: { full_name: string | null; email: string | null } | null
  * One task, with the checkbox doing the work.
  *
  * Marking something done is the single most repeated action here, so it costs
- * one tap and no dialog. The row goes quiet rather than disappearing, so the
- * tap can be taken back.
+ * one tap and no dialog. On a matter, where the panel lists finished tasks too,
+ * the row goes quiet and the tap can be taken back from the same checkbox. On
+ * the firm-wide list, which is a list of what is open, it leaves — and is
+ * reachable again from its matter.
  */
 export function TaskRow({
   task,
