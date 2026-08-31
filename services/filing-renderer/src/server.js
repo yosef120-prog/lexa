@@ -81,7 +81,7 @@ async function render(bundleId) {
       });
     }
 
-    const parts = await buildFiling({
+    const { parts, pageCount } = await buildFiling({
       cover: {
         title: bundle.title,
         firmName: one(bundle.org)?.name,
@@ -125,7 +125,7 @@ async function render(bundleId) {
     await db.update("filing_bundles", `id=eq.${bundleId}`, {
       status: "ready",
       output_document_id: firstId,
-      page_count: parts.length,
+      page_count: pageCount,
       error: null,
       updated_at: new Date().toISOString(),
     });

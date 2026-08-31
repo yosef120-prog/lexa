@@ -75,10 +75,11 @@ export async function buildFiling({ cover, main, appendices }) {
 
   numberPages(doc, regular);
 
+  const pageCount = doc.getPageCount();
   const whole = await doc.save();
-  if (whole.byteLength <= PART_LIMIT_BYTES) return [whole];
 
-  return splitByPages(doc, whole);
+  if (whole.byteLength <= PART_LIMIT_BYTES) return { parts: [whole], pageCount };
+  return { parts: await splitByPages(doc, whole), pageCount };
 }
 
 async function addCover(doc, fonts, cover, appendices) {
@@ -153,8 +154,15 @@ async function appendPdf(target, bytes, label) {
     throw new Error(`לא ניתן לקרוא את הקובץ: ${label}`, { cause });
   }
 
-  const pages = await target.copyPages(source, source.getPageIndices());
-  for (const page of pages) target.addPage(page);
+  try {
+    const pages = await target.copyPages(source, source.getPageIndices());
+    if (!pages.length) throw new Error("no pages");
+    for (const page of pages) target.addPage(page);
+  } catch (cause) {
+    // A file can parse and still have no usable page tree. Before this, the
+    // lawyer saw pdf-lib's own wording and no clue which file caused it.
+    throw new Error(`הקובץ פגום ולא ניתן לצרף אותו: ${label}`, { cause });
+  }
 }
 
 /** Sequential across the whole filing, which is what a court refers to. */

@@ -67,7 +67,7 @@ const twoAppendices = [
   { label: "נספח ב׳", name: "נסח טאבו.pdf", bytes: await makePdf(1, "b") },
 ];
 
-const [small] = await buildFiling({ cover, main, appendices: twoAppendices });
+const { parts: [small], pageCount: smallPages } = await buildFiling({ cover, main, appendices: twoAppendices });
 const smallDoc = await PDFDocument.load(small);
 // cover + main 3 + (separator + 2) + (separator + 1) = 9. No index at two.
 check("a short filing has a cover, no index, and a separator per appendix",
@@ -82,7 +82,7 @@ const sixAppendices = await Promise.all(
     bytes: await makePdf(1, `ex${i + 1}`),
   })),
 );
-const [withIndex] = await buildFiling({ cover, main, appendices: sixAppendices });
+const { parts: [withIndex] } = await buildFiling({ cover, main, appendices: sixAppendices });
 const indexDoc = await PDFDocument.load(withIndex);
 // cover + index + main 3 + 6 × (separator + 1) = 17.
 check("past five appendices an index appears", indexDoc.getPageCount(), 17);
@@ -100,11 +100,13 @@ try {
   refused = e.message;
 }
 check("an unreadable exhibit stops the build and names itself",
-  refused, "לא ניתן לקרוא את הקובץ: נספח א׳");
+  /נספח א׳/.test(refused ?? ""), true);
 
 // --- one part when it fits ---------------------------------------------------
 check("a filing that fits comes back as a single part",
-  (await buildFiling({ cover, main, appendices: twoAppendices })).length, 1);
+  (await buildFiling({ cover, main, appendices: twoAppendices })).parts.length, 1);
+// The bundle records this, so it has to be pages rather than parts.
+check("and reports how many pages it produced", smallPages, 9);
 
 // --- page numbering ----------------------------------------------------------
 // Sequential across the whole filing is what a court refers to, so the count
