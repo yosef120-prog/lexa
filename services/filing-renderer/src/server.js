@@ -20,7 +20,24 @@ const supabase = createClient(SUPABASE_URL, requiredEnv("SUPABASE_SERVICE_ROLE_K
 function requiredEnv(name) {
   const value = process.env[name];
   if (!value) throw new Error(`Missing ${name}`);
-  return value;
+  // A stray newline from a secret or a copied value produces an invalid URL and
+  // a fetch that fails with nothing useful attached.
+  return value.trim();
+}
+
+/**
+ * Node reports every network problem as "fetch failed" and hides the reason in
+ * a nested cause. Unwrapping it is the difference between a diagnosable error
+ * and a guess.
+ */
+function explain(error) {
+  const parts = [];
+  let current = error;
+  while (current && parts.length < 4) {
+    parts.push(current.code ? `${current.message} (${current.code})` : current.message);
+    current = current.cause;
+  }
+  return parts.join(" ← ");
 }
 
 /**
@@ -253,7 +270,7 @@ createServer(async (req, res) => {
 
     if (lookupError) {
       console.error("bundle lookup failed", lookupError);
-      return send(500, { error: `לא ניתן לקרוא את ההגשה: ${lookupError.message}` });
+      return send(500, { error: `לא ניתן לקרוא את ההגשה: ${explain(lookupError)}` });
     }
     if (!owner) return send(404, { error: "Not found" });
     if (!(await isMemberOf(userId, owner.org_id))) {
@@ -263,6 +280,23 @@ createServer(async (req, res) => {
     return send(200, await render(bundleId));
   } catch (error) {
     console.error("render failed", error);
-    return send(500, { error: error.message });
+    return send(500, { error: explain(error) });
   }
-}).listen(PORT, () => console.log(`filing renderer listening on ${PORT}`));
+}).listen(PORT, async () => {
+  console.log(`filing renderer listening on ${PORT}`);
+  console.log(`supabase url: ${JSON.stringify(SUPABASE_URL)}`);
+
+  // Says at startup whether the two routes out of this container work, so a
+  // failure later is a change rather than a mystery.
+  for (const [label, url] of [
+    ["auth", `${SUPABASE_URL}/auth/v1/health`],
+    ["rest", `${SUPABASE_URL}/rest/v1/`],
+  ]) {
+    try {
+      const res = await fetch(url, { headers: { apikey: PUBLISHABLE_KEY } });
+      console.log(`reachability ${label}: ${res.status}`);
+    } catch (error) {
+      console.error(`reachability ${label}: ${explain(error)}`);
+    }
+  }
+});
