@@ -6,6 +6,8 @@ import { ClientsScreen } from "@/screens/ClientsScreen";
 import { MattersScreen } from "@/screens/MattersScreen";
 import { MatterScreen } from "@/screens/MatterScreen";
 import { DiaryScreen } from "@/screens/DiaryScreen";
+import { TasksScreen } from "@/screens/TasksScreen";
+import { TeamScreen } from "@/screens/TeamScreen";
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "בעלים",
@@ -14,10 +16,14 @@ const ROLE_LABEL: Record<string, string> = {
   secretary: "מזכירה",
 };
 
-type Tab = "matters" | "diary" | "clients";
+type Tab = "matters" | "tasks" | "diary" | "clients" | "team";
 
+// The firm screen is reached through the firm's name in the header rather than
+// from here: it is opened when someone joins or leaves, which is rarely, and a
+// fifth tab would cost every other screen room it uses more often.
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "matters", label: "תיקים" },
+  { id: "tasks", label: "משימות" },
   { id: "diary", label: "יומן" },
   { id: "clients", label: "לקוחות" },
 ];
@@ -55,7 +61,15 @@ export function AppShell() {
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-3 sm:px-6 sm:pt-4">
           <div className="flex items-baseline gap-2 sm:gap-3">
             <span className="text-lg font-bold tracking-tight">LEXA</span>
-            <span className="truncate text-sm text-muted">{membership.org_name}</span>
+            <button
+              onClick={() => go("team")}
+              aria-current={tab === "team" ? "page" : undefined}
+              className={`truncate text-sm underline-offset-4 hover:underline ${
+                tab === "team" ? "font-semibold text-brand" : "text-muted"
+              }`}
+            >
+              {membership.org_name}
+            </button>
           </div>
 
           {/* The identity line is the first thing to go on a narrow screen: it
@@ -99,6 +113,10 @@ export function AppShell() {
       <main className="flex-1 pb-20 sm:pb-0">
         {tab === "clients" ? (
           <ClientsScreen />
+        ) : tab === "team" ? (
+          <TeamScreen />
+        ) : tab === "tasks" && !openMatter ? (
+          <TasksScreen onOpenMatter={openMatterFrom} />
         ) : tab === "diary" && !openMatter ? (
           <DiaryScreen onOpenMatter={openMatterFrom} />
         ) : openMatter ? (
@@ -118,7 +136,7 @@ export function AppShell() {
             key={t.id}
             onClick={() => go(t.id)}
             aria-current={tab === t.id ? "page" : undefined}
-            className={`flex-1 border-t-2 py-3 text-sm font-semibold ${
+            className={`flex-1 border-t-2 py-3 text-xs font-semibold ${
               tab === t.id ? "border-brand text-brand" : "border-transparent text-muted"
             }`}
           >
@@ -127,7 +145,7 @@ export function AppShell() {
         ))}
         <button
           onClick={signOut}
-          className="flex-1 border-t-2 border-transparent py-3 text-sm font-semibold text-muted"
+          className="flex-1 border-t-2 border-transparent py-3 text-xs font-semibold text-muted"
         >
           יציאה
         </button>

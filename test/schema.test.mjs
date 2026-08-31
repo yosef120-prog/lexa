@@ -1327,6 +1327,46 @@ check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "time_entries", privs: "INSERT,SELECT,UPDATE" },
 ]);
 
+// ---------------------------------------------------------------- embeds
+//
+// PostgREST will not follow a foreign key into the auth schema, so a column
+// that points there cannot be read alongside the person's name in one request:
+// asking fails outright, and the screen listing people lists blanks. This has
+// now caused the same bug twice, in matter_activity and in org_members, so the
+// rule gets asserted rather than remembered.
+//
+// Two columns may still point at auth.users. profiles.id is the mirror itself
+// and has nowhere else to point; audit_log.actor_id records who acted even
+// after the profile is gone, which is the point of an audit trail.
+console.log("\nschema · references into auth");
+const authRefs = await db.query(`
+  select c.relname as table_name, a.attname as column_name
+  from pg_constraint k
+  join pg_class c on c.oid = k.conrelid
+  join pg_class ref on ref.oid = k.confrelid
+  join pg_namespace n on n.oid = c.relnamespace
+  join pg_namespace refn on refn.oid = ref.relnamespace
+  join unnest(k.conkey) as col(num) on true
+  join pg_attribute a on a.attrelid = c.oid and a.attnum = col.num
+  where k.contype = 'f' and n.nspname = 'public' and refn.nspname = 'auth'
+  order by c.relname, a.attname
+`);
+check("only the mirror and the audit trail reach into auth", authRefs.rows, [
+  { table_name: "audit_log", column_name: "actor_id" },
+  { table_name: "profiles", column_name: "id" },
+]);
+
+const seatWithName = await asUser(UID_A, async () =>
+  (await db.query(`
+    select p.email
+    from public.org_members m
+    join public.profiles p on p.id = m.user_id
+    where m.user_id = '${UID_A}'
+  `)).rows[0]?.email,
+);
+check("a seat can be read with the name attached", seatWithName, "daniel@example.com");
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
+
 await db.close();
 process.exit(failures === 0 ? 0 : 1);

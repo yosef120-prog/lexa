@@ -26,6 +26,10 @@ import {
   type TimeEntry,
 } from "@/lib/billing";
 import { BillingPanel } from "@/components/billing-panel";
+import { listMatterTasks, type Task } from "@/lib/tasks";
+import { TasksPanel } from "@/components/tasks-panel";
+import { listInvoices, type Invoice } from "@/lib/invoices";
+import { InvoicesPanel } from "@/components/invoices-panel";
 import { listBundles, type FilingBundle } from "@/lib/filing";
 import { FilingPanel } from "@/components/filing-panel";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
@@ -62,12 +66,14 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [timer, setTimer] = useState<RunningTimer | null>(null);
   const [bundles, setBundles] = useState<FilingBundle[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      const [m, t, p, d, ev, f, te, tm, fb] = await Promise.all([
+      const [m, t, p, d, ev, f, te, tm, fb, tk, inv] = await Promise.all([
         getMatter(matterId),
         getTimeline(matterId),
         getParties(matterId),
@@ -77,6 +83,10 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
         listTimeEntries(matterId),
         getRunningTimer(),
         listBundles(matterId),
+        listMatterTasks(matterId),
+        // Money is not every role's to see, and an intern opening a matter
+        // should still get the matter.
+        listInvoices(matterId).catch(() => [] as Invoice[]),
       ]);
       setMatter(m);
       setTimeline(t);
@@ -87,6 +97,8 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
       setTimeEntries(te);
       setTimer(tm);
       setBundles(fb);
+      setTasks(tk);
+      setInvoices(inv);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -125,7 +137,14 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
             timer={timer}
             onChanged={reload}
           />
+          <TasksPanel matterId={matterId} tasks={tasks} onChanged={reload} />
           <MatterEvents matterId={matterId} events={events} onChanged={reload} />
+          <InvoicesPanel
+            matterId={matterId}
+            invoices={invoices}
+            entries={timeEntries}
+            onChanged={reload}
+          />
           <Parties matterId={matterId} parties={parties} onAdded={reload} />
           <DocumentsPanel matterId={matterId} groups={documents} onChanged={reload} />
           <FilingPanel
