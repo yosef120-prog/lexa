@@ -61,11 +61,11 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
           VITE_RENDERER_URL: ${{ vars.VITE_RENDERER_URL }}
 
-      # enablement: true turns Pages on the first time this runs, so the repo
-      # needs no visit to its settings.
+      # Reads the Pages configuration the repository already has. It cannot
+      # create it: GITHUB_TOKEN is refused the Pages API with "Resource not
+      # accessible by integration", so the source is set once in Settings ->
+      # Pages, by hand, and this step only picks it up.
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
