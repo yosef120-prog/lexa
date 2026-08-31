@@ -14,6 +14,7 @@ import {
 } from "@/lib/invitations";
 import { count } from "@/lib/hebrew";
 import { ExportPanel } from "@/components/export-panel";
+import { MfaPanel } from "@/components/mfa-panel";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
 const INVITABLE: OrgRole[] = ["lawyer", "intern", "secretary"];
@@ -112,7 +113,9 @@ export function TeamScreen() {
         </div>
       )}
 
-      {isOwner && <ExportPanel />}
+      <MfaPanel />
+
+      {isOwner && <div className="mt-5"><ExportPanel /></div>}
     </div>
   );
 }

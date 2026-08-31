@@ -5,6 +5,7 @@ import { AuthScreen } from "@/screens/AuthScreen";
 import { CreateFirmScreen } from "@/screens/CreateFirmScreen";
 import { AppShell } from "@/screens/AppShell";
 import { AcceptInviteScreen } from "@/screens/AcceptInviteScreen";
+import { SecondStepScreen } from "@/screens/SecondStepScreen";
 import "@/styles.css";
 
 /** The one address worth having: the link that brings someone into a firm. */
@@ -18,7 +19,7 @@ function inviteTokenFromUrl(): string | null {
  * pages worth addressing than this.
  */
 function App() {
-  const { session, membership, loading } = useAuth();
+  const { session, membership, loading, awaitingSecondStep, refreshAssurance } = useAuth();
   const [invite, setInvite] = useState(inviteTokenFromUrl);
 
   // Dropping the token from the address bar once it is spent keeps a spent
@@ -37,6 +38,9 @@ function App() {
   }
   if (invite) return <AcceptInviteScreen token={invite} onDone={clearInvite} />;
   if (!session) return <AuthScreen />;
+  // Ahead of the firm and the shell both: a session that has not answered the
+  // challenge must not see a client name, not even for a moment.
+  if (awaitingSecondStep) return <SecondStepScreen onPassed={refreshAssurance} />;
   if (!membership) return <CreateFirmScreen />;
   return <AppShell />;
 }
