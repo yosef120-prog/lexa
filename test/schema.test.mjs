@@ -113,6 +113,21 @@ async function asUser(uid, fn) {
   }
 }
 
+/**
+ * A caller with no session at all — the role PostgREST uses for a request
+ * carrying no token. This is what a client holding an intake link actually is,
+ * so the intake tests run through here rather than as a member with the
+ * checks turned off in their head.
+ */
+async function asAnon(fn) {
+  await db.exec(`set role anon; set test.uid = '';`);
+  try {
+    return await fn();
+  } finally {
+    await db.exec(`reset role;`);
+  }
+}
+
 const UID_A = "11111111-1111-1111-1111-111111111111";
 const UID_B = "22222222-2222-2222-2222-222222222222";
 
@@ -1419,6 +1434,7 @@ const authGrants = await db.query(`
 check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "active_timers", privs: "DELETE,INSERT,SELECT" },
   { table_name: "audit_log", privs: "SELECT" },
+  { table_name: "client_intakes", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "clients", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "conflict_checks", privs: "INSERT,SELECT" },
   { table_name: "documents", privs: "INSERT,SELECT,UPDATE" },
@@ -1426,6 +1442,12 @@ check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "fee_agreements", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "filing_bundle_items", privs: "DELETE,INSERT,SELECT,UPDATE" },
   { table_name: "filing_bundles", privs: "INSERT,SELECT,UPDATE" },
+  // Answers are readable and never writable through the table: only
+  // submit_intake creates them, which is what stops the firm from filling in
+  // what the client said.
+  { table_name: "intake_answers", privs: "SELECT" },
+  { table_name: "intake_forms", privs: "INSERT,SELECT,UPDATE" },
+  { table_name: "intake_questions", privs: "DELETE,INSERT,SELECT,UPDATE" },
   { table_name: "invoice_lines", privs: "SELECT" },
   { table_name: "invoice_numbers", privs: "SELECT" },
   { table_name: "invoices", privs: "SELECT,UPDATE" },
@@ -1440,6 +1462,183 @@ check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "tasks", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "time_entries", privs: "INSERT,SELECT,UPDATE" },
 ]);
+
+// ---------------------------------------------------------------- intake
+//
+// The one door that opens outward, so it gets tested from outside: as anon,
+// with nothing but a token, exactly like a client with a link.
+console.log("\nschema · the intake door\n");
+
+const intakeForm = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.intake_forms (org_id, name, intro)
+    values ('${orgA}', 'שאלון פתיחת תיק', 'כמה פרטים לפני הפגישה')
+    returning id
+  `)).rows[0].id,
+);
+
+await asUser(UID_A, async () => {
+  await db.query(`
+    insert into public.intake_questions (org_id, form_id, position, type, label, required)
+    values ('${orgA}', '${intakeForm}', 1, 'text', 'שם מלא', true),
+           ('${orgA}', '${intakeForm}', 2, 'file', 'צילום תעודת זהות', true)
+  `);
+});
+
+const intakeToken = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.client_intakes (org_id, client_id, form_id)
+    values ('${orgA}', '${clientA}', '${intakeForm}')
+    returning token
+  `)).rows[0].token,
+);
+check("a token is long enough to be unguessable", intakeToken.length, 64);
+
+// As anon: no session, no membership, nothing but the string from the link.
+const intakePeek = await asAnon(async () =>
+  (await db.query(`select * from public.open_intake('${intakeToken}')`)).rows[0],
+);
+check("the link opens for a stranger", intakePeek.valid, true);
+check("and names the firm", intakePeek.org_name, "משרד דניאל");
+check("and the client it is for", intakePeek.client_name, "יוסף חיים כהן");
+check("and carries the questions", intakePeek.questions.length, 2);
+
+// The whole of what an outsider learns. If a column is ever added to the
+// return type, this fails and somebody has to think about it.
+check("and nothing else at all", Object.keys(intakePeek).sort(), [
+  "client_name", "form_name", "intro", "org_name", "questions", "reason", "valid",
+]);
+
+const opened = await asUser(UID_A, async () =>
+  (await db.query(`select status::text, opened_at from public.client_intakes where token = '${intakeToken}'`)).rows[0],
+);
+check("opening it is recorded for the firm", opened.status, "opened");
+
+// A stranger cannot reach the tables the function reads from.
+const anonTables = await asAnon(async () => {
+  const blocked = [];
+  for (const t of ["clients", "client_intakes", "intake_answers", "intake_questions"]) {
+    try {
+      await db.query(`select * from public.${t} limit 1`);
+    } catch {
+      blocked.push(t);
+    }
+  }
+  return blocked;
+});
+check("and can read none of the tables behind it", anonTables.length, 4);
+
+// An id from another firm's form, posted with a valid token. The only place in
+// the schema where an outsider supplies an identifier.
+const foreignQuestion = await asUser(UID_B, async () => {
+  const f = (await db.query(`
+    insert into public.intake_forms (org_id, name) values ('${orgB}', 'של משרד אחר') returning id
+  `)).rows[0].id;
+  return (await db.query(`
+    insert into public.intake_questions (org_id, form_id, position, type, label)
+    values ('${orgB}', '${f}', 1, 'text', 'שאלה זרה') returning id
+  `)).rows[0].id;
+});
+
+let smuggled = "";
+try {
+  await asAnon(async () => {
+    await db.query(`
+      select public.submit_intake('${intakeToken}',
+        '[{"question_id": "${foreignQuestion}", "text": "x"}]'::jsonb)
+    `);
+  });
+} catch (e) {
+  smuggled = e.message;
+}
+check("a question from another firm is refused", smuggled.includes("UNKNOWN_QUESTION"), true);
+
+const answersAfterSmuggle = await asUser(UID_A, async () =>
+  (await db.query(`select count(*)::int as n from public.intake_answers`)).rows[0].n,
+);
+check("and nothing was written on the way", answersAfterSmuggle, 0);
+
+// The ordinary path.
+const questionId = intakePeek.questions[0].id;
+await asAnon(async () => {
+  await db.query(`
+    select public.submit_intake('${intakeToken}',
+      '[{"question_id": "${questionId}", "text": "יוסף חיים כהן"}]'::jsonb)
+  `);
+});
+
+const submitted = await asUser(UID_A, async () =>
+  (await db.query(`
+    select i.status::text, a.value_text
+    from public.client_intakes i
+    join public.intake_answers a on a.intake_id = i.id
+    where i.token = '${intakeToken}'
+  `)).rows[0],
+);
+check("the answer reaches the firm", submitted.value_text, "יוסף חיים כהן");
+check("and the form is closed", submitted.status, "submitted");
+
+// Single use. A link forwarded on, or opened twice, cannot overwrite what was
+// already said -- and the firm's record of what the client answered is fixed.
+let twice = "";
+try {
+  await asAnon(async () => {
+    await db.query(`select public.submit_intake('${intakeToken}', '[]'::jsonb)`);
+  });
+} catch (e) {
+  twice = e.message;
+}
+check("it cannot be submitted a second time", twice.includes("ALREADY_SUBMITTED"), true);
+
+const spent = await asAnon(async () =>
+  (await db.query(`select valid, reason from public.open_intake('${intakeToken}')`)).rows[0],
+);
+check("and a spent link says so rather than opening", spent.valid, false);
+check("with a reason the screen can translate", spent.reason, "ALREADY_SUBMITTED");
+
+// An expired one is refused by the same predicate the storage policy uses, so
+// uploads stop at the same moment the form does.
+const expiredIntake = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.client_intakes (org_id, client_id, form_id, expires_at)
+    values ('${orgA}', '${clientA}', '${intakeForm}', now() - interval '1 day')
+    returning token
+  `)).rows[0].token,
+);
+check("an expired link will not open", await asAnon(async () =>
+  (await db.query(`select reason from public.open_intake('${expiredIntake}')`)).rows[0].reason,
+), "EXPIRED");
+check("and will not accept a file", await asUser(UID_A, async () =>
+  (await db.query(`select public.intake_is_open('${expiredIntake}') as open`)).rows[0].open,
+), false);
+check("a made-up token is not open either", await asUser(UID_A, async () =>
+  (await db.query(`select public.intake_is_open('nonsense') as open`)).rows[0].open,
+), false);
+
+// Documents can now hang off a client with no matter, which is how an intake
+// arrives -- before anyone has opened a file.
+const clientDoc = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.documents (org_id, client_id, storage_path, filename)
+    values ('${orgA}', '${clientA}', '${orgA}/intake/x1', 'תעודת זהות.pdf')
+    returning id, matter_id
+  `)).rows[0],
+);
+check("a document can belong to a client with no matter", clientDoc.matter_id, null);
+
+let nowhere = "";
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`
+      insert into public.documents (org_id, storage_path, filename)
+      values ('${orgA}', '${orgA}/intake/x2', 'יתום.pdf')
+    `);
+  });
+} catch (e) {
+  nowhere = e.message;
+}
+check("but one belonging to neither is refused", nowhere.includes("documents_belongs_somewhere"), true);
+
 
 // ---------------------------------------------------------------- embeds
 //
