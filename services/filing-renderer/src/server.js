@@ -19,7 +19,19 @@ const PUBLISHABLE_KEY = requiredEnv("SUPABASE_PUBLISHABLE_KEY");
 // The secret key lives here and nowhere else. This process is the only
 // component allowed past row level security, and it earns that by checking the
 // caller's own membership before it reads anything.
-const db = createRest({ url: SUPABASE_URL, key: requiredEnv("SUPABASE_SERVICE_ROLE_KEY") });
+//
+// A bad key must not stop the container from starting. Cloud Run restarts a
+// process that exits, so a throw here becomes a crash loop whose reason is
+// buried in logs from a revision that never served a request. Starting and
+// saying what is wrong is worth far more than refusing to start.
+let db = null;
+let configError = null;
+try {
+  db = createRest({ url: SUPABASE_URL, key: requiredEnv("SUPABASE_SERVICE_ROLE_KEY") });
+} catch (error) {
+  configError = error.message;
+  console.error(`configuration rejected: ${configError}`);
+}
 
 const HEBREW_ORDINALS = ["א", "ב", "ג", "ד", "ה", "ו", "ז", "ח", "ט", "י",
   "יא", "יב", "יג", "יד", "טו", "טז", "יז", "יח", "יט", "כ"];
@@ -154,12 +166,18 @@ createServer(async (req, res) => {
   }
 
   if (req.method === "GET" && req.url === "/health") {
-    return send(200, { ok: true, limitBytes: PART_LIMIT_BYTES });
+    return send(configError ? 503 : 200, {
+      ok: !configError,
+      limitBytes: PART_LIMIT_BYTES,
+      ...(configError ? { error: configError } : {}),
+    });
   }
 
   if (req.method !== "POST" || !req.url.startsWith("/build")) {
     return send(404, { error: "Not found" });
   }
+
+  if (!db) return send(503, { error: `השירות לא מוגדר כראוי: ${configError}` });
 
   const userId = await verifyToken({
     url: SUPABASE_URL,
@@ -202,6 +220,10 @@ createServer(async (req, res) => {
   // Says at startup whether this container can reach Supabase and whether the
   // secret key is accepted, so a later failure is a change rather than a
   // mystery.
+  if (!db) {
+    console.error("supabase: not configured, see above");
+    return;
+  }
   try {
     await db.select("organizations", "select=id&limit=1");
     console.log("supabase: reachable, key accepted");
