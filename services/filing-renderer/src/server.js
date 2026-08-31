@@ -5,14 +5,17 @@ import { buildFiling, PART_LIMIT_BYTES } from "./build.js";
 const PORT = process.env.PORT || 8080;
 const BUCKET = "matter-documents";
 
+const SUPABASE_URL = requiredEnv("SUPABASE_URL");
+// Public by design, and the right key for this: checking who someone is needs
+// no privilege at all. The secret key below is for reading their firm's data.
+const PUBLISHABLE_KEY = requiredEnv("SUPABASE_PUBLISHABLE_KEY");
+
 // The service role key lives here and nowhere else. This process is the only
 // component allowed to bypass row level security, and it earns that by checking
 // the caller's own membership before it touches anything.
-const supabase = createClient(
-  requiredEnv("SUPABASE_URL"),
-  requiredEnv("SUPABASE_SERVICE_ROLE_KEY"),
-  { auth: { persistSession: false } },
-);
+const supabase = createClient(SUPABASE_URL, requiredEnv("SUPABASE_SERVICE_ROLE_KEY"), {
+  auth: { persistSession: false },
+});
 
 function requiredEnv(name) {
   const value = process.env[name];
@@ -31,9 +34,27 @@ function requiredEnv(name) {
  */
 async function callerId(authHeader) {
   if (!authHeader?.startsWith("Bearer ")) return null;
-  const { data, error } = await supabase.auth.getUser(authHeader.slice(7));
-  if (error || !data?.user) return null;
-  return data.user.id;
+
+  // Asked of Supabase directly rather than through the admin client. The secret
+  // key is not accepted on the auth endpoint, so verifying through a client
+  // built with it fails every token -- which is exactly what it did.
+  let res;
+  try {
+    res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: PUBLISHABLE_KEY, authorization: authHeader },
+    });
+  } catch (error) {
+    console.error("could not reach the auth endpoint", error);
+    return null;
+  }
+
+  if (!res.ok) {
+    console.warn(`token rejected by Supabase: ${res.status}`);
+    return null;
+  }
+
+  const user = await res.json().catch(() => null);
+  return user?.id ?? null;
 }
 
 async function isMemberOf(userId, orgId) {

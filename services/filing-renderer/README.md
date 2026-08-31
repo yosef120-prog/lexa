@@ -61,4 +61,5 @@ itself rather than trusting the request.
 | Name | Where it comes from |
 | --- | --- |
 | `SUPABASE_URL` | Project settings. Not secret. |
+| `SUPABASE_PUBLISHABLE_KEY` | Project API keys. Not secret — it verifies who a caller is, which needs no privilege. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Project API keys. **Secret Manager only** — never in the repo, never in the browser. |
