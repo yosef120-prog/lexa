@@ -14,6 +14,7 @@ export function MatterEvents({
   onChanged: () => void;
 }) {
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<CalendarEvent | null>(null);
 
   // The next thing due is the fact this panel exists to surface, so it is not
   // buried under a list of everything that ever happened.
@@ -35,11 +36,11 @@ export function MatterEvents({
       </div>
 
       {overdue.map((e) => (
-        <EventRow key={e.id} event={e} overdue />
+        <EventRow key={e.id} event={e} onEdit={setEditing} overdue />
       ))}
 
       {next ? (
-        <EventRow event={next} />
+        <EventRow event={next} onEdit={setEditing} />
       ) : (
         overdue.length === 0 && (
           <p className="text-sm text-ink-soft">אין מועדים בתיק הזה.</p>
@@ -60,6 +61,17 @@ export function MatterEvents({
             onChanged();
           }}
           onCancel={() => setAdding(false)}
+        />
+      )}
+
+      {editing && (
+        <EventForm
+          event={editing}
+          onDone={() => {
+            setEditing(null);
+            onChanged();
+          }}
+          onCancel={() => setEditing(null)}
         />
       )}
     </Card>

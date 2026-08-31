@@ -22,6 +22,7 @@ export function DiaryScreen({ onOpenMatter }: { onOpenMatter: (id: string) => vo
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<CalendarEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -76,7 +77,9 @@ export function DiaryScreen({ onOpenMatter }: { onOpenMatter: (id: string) => vo
           <h2 className="mb-2 text-sm font-bold text-danger">עברו ולא נסגרו</h2>
           <div className="flex flex-col gap-2">
             {past.map((e) => (
-              <EventRow key={e.id} event={e} onOpenMatter={onOpenMatter} overdue />
+              <Editable key={e.id} event={e} editing={editing} setEditing={setEditing} reload={reload}>
+                <EventRow event={e} onOpenMatter={onOpenMatter} onEdit={setEditing} overdue />
+              </Editable>
             ))}
           </div>
         </section>
@@ -90,20 +93,54 @@ export function DiaryScreen({ onOpenMatter }: { onOpenMatter: (id: string) => vo
 
       <div className="flex flex-col gap-2">
         {ahead.map((e) => (
-          <EventRow key={e.id} event={e} onOpenMatter={onOpenMatter} />
+          <Editable key={e.id} event={e} editing={editing} setEditing={setEditing} reload={reload}>
+            <EventRow event={e} onOpenMatter={onOpenMatter} onEdit={setEditing} />
+          </Editable>
         ))}
       </div>
     </div>
   );
 }
 
+/** The row, or the form that is correcting it — in the same place on the page. */
+function Editable({
+  event,
+  editing,
+  setEditing,
+  reload,
+  children,
+}: {
+  event: CalendarEvent;
+  editing: CalendarEvent | null;
+  setEditing: (e: CalendarEvent | null) => void;
+  reload: () => Promise<void>;
+  children: React.ReactNode;
+}) {
+  if (editing?.id !== event.id) return <>{children}</>;
+  return (
+    <Card>
+      <h2 className="text-lg font-bold">עריכת מועד</h2>
+      <EventForm
+        event={event}
+        onDone={async () => {
+          setEditing(null);
+          await reload();
+        }}
+        onCancel={() => setEditing(null)}
+      />
+    </Card>
+  );
+}
+
 export function EventRow({
   event,
   onOpenMatter,
+  onEdit,
   overdue = false,
 }: {
   event: CalendarEvent;
   onOpenMatter?: (id: string) => void;
+  onEdit?: (event: CalendarEvent) => void;
   overdue?: boolean;
 }) {
   const days = daysAway(event.starts_at);
@@ -149,6 +186,14 @@ export function EventRow({
         >
           ליומן גוגל
         </a>
+        {onEdit && (
+          <button
+            onClick={() => onEdit(event)}
+            className="text-xs text-ink-soft underline underline-offset-2 hover:text-ink"
+          >
+            ערוך
+          </button>
+        )}
       </div>
     </Card>
   );

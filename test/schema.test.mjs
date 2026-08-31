@@ -595,9 +595,10 @@ check("but a chosen one is kept", chosenReminder, true);
 
 // A firm-level entry belongs to nobody's matter, and must not need one.
 const firmWide = await asUser(UID_A, async () =>
-  (await db.query(`select id from public.events where matter_id is null`)).rows.length,
+  (await db.query(`select id from public.events where matter_id is null`)).rows,
 );
-check("an event can belong to the firm rather than a matter", firmWide, 1);
+check("an event can belong to the firm rather than a matter", firmWide.length, 1);
+const firmEventId = firmWide[0].id;
 
 const eventOnFeed = await asUser(UID_A, async () =>
   (await db.query(`select body from public.matter_activity where kind = 'event'`)).rows.length,
@@ -644,6 +645,111 @@ const internAddedEvent = await asUser(UID_DIARY_INTERN, async () => {
   }
 });
 check("an intern does not keep the diary", internAddedEvent, 0);
+
+// A hearing that moves takes its warning with it. Before the trigger that does
+// this, pushing a hearing back left remind_at on the old date -- so the banner
+// opened early and stayed open for the whole gap, which is how a warning
+// teaches people to ignore it.
+const moved = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    update public.events set starts_at = now() + interval '40 days'
+    where id = '${hearing.id}'
+    returning starts_at, remind_at
+  `);
+  return r.rows[0];
+});
+check(
+  "moving a hearing moves its reminder",
+  new Date(moved.starts_at) - new Date(moved.remind_at),
+  24 * 60 * 60 * 1000,
+);
+
+// Someone who asked to be warned a week out still wants a week when the date
+// slips; resetting them all to 24 hours would quietly overrule that.
+const keptLead = await asUser(UID_A, async () => {
+  await db.query(`
+    update public.events set remind_at = starts_at - interval '7 days'
+    where id = '${hearing.id}'
+  `);
+  const r = await db.query(`
+    update public.events set starts_at = now() + interval '60 days'
+    where id = '${hearing.id}'
+    returning starts_at, remind_at
+  `);
+  return r.rows[0];
+});
+check(
+  "and keeps the lead time that was chosen",
+  new Date(keptLead.starts_at) - new Date(keptLead.remind_at),
+  7 * 24 * 60 * 60 * 1000,
+);
+
+// The timeline should be able to tell a hearing being entered from one being
+// pushed back, because to a client those are entirely different news.
+const moveLogged = await asUser(UID_A, async () =>
+  (await db.query(`
+    select count(*)::int as n from public.matter_activity
+    where ref_id = '${hearing.id}' and body like '%נדחה%'
+  `)).rows[0].n,
+);
+check("a postponement is written on the matter", moveLogged, 2);
+
+// --- cancelling a diary entry ---
+const beforeCancel = await asUser(UID_A, async () =>
+  (await db.query(`select count(*)::int as n from public.events where id = '${hearing.id}'`)).rows[0].n,
+);
+check("the hearing is visible before it is cancelled", beforeCancel, 1);
+
+await asUser(UID_A, async () => {
+  await db.query(`select public.cancel_event('${hearing.id}', 'נדחה בהסכמת הצדדים')`);
+});
+
+const afterCancel = await asUser(UID_A, async () =>
+  (await db.query(`select count(*)::int as n from public.events where id = '${hearing.id}'`)).rows[0].n,
+);
+check("and gone from the diary afterwards", afterCancel, 0);
+
+// Gone from the diary is not gone from the record. A hearing that vanishes
+// without trace is the thing a lawyer cannot have.
+const cancelNoted = await asUser(UID_A, async () =>
+  (await db.query(`
+    select body from public.matter_activity
+    where ref_id = '${hearing.id}' and body like 'בוטל%'
+  `)).rows[0]?.body,
+);
+check(
+  "but the cancellation stays on the matter",
+  cancelNoted?.startsWith("בוטל: דיון הוכחות · "),
+  true,
+);
+check(
+  "and carries the reason that was given",
+  cancelNoted?.endsWith(" · נדחה בהסכמת הצדדים"),
+  true,
+);
+
+let cancelTwice = "";
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`select public.cancel_event('${hearing.id}')`);
+  });
+} catch (e) {
+  cancelTwice = e.message;
+}
+check("cancelling it again says so plainly", cancelTwice.includes("NOT_FOUND"), true);
+
+// The same three roles that may keep the diary may correct it. A secretary who
+// can enter a hearing but not remove one they mistyped keeps a second diary on
+// paper.
+let internCancel = "";
+try {
+  await asUser(UID_DIARY_INTERN, async () => {
+    await db.query(`select public.cancel_event('${firmEventId}')`);
+  });
+} catch (e) {
+  internCancel = e.message;
+}
+check("an intern cannot cancel one", internCancel.includes("FORBIDDEN"), true);
 
 // --- fee agreements ----------------------------------------------------------
 // A colleague, so the one-timer-per-user rule can be shown to be per user

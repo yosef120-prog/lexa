@@ -62,6 +62,54 @@ export async function listMatterEvents(matterId: string): Promise<CalendarEvent[
   return normalise(data ?? []);
 }
 
+/** Correcting an entry. The date is what usually changes: hearings move. */
+export async function updateEvent(
+  id: string,
+  patch: {
+    kind: EventKind;
+    title: string;
+    starts_at: string;
+    all_day: boolean;
+    location: string;
+  },
+): Promise<void> {
+  const { error } = await supabase
+    .from("events")
+    .update({
+      kind: patch.kind,
+      title: patch.title.trim(),
+      starts_at: patch.starts_at,
+      all_day: patch.all_day,
+      location: patch.location.trim() || null,
+    })
+    .eq("id", id);
+  if (error) throw new Error(describeDbError(error));
+}
+
+const CANCEL_TROUBLE: Record<string, string> = {
+  NOT_FOUND: "המועד כבר בוטל או נמחק.",
+  FORBIDDEN: "אין לך הרשאה לבטל מועדים.",
+};
+
+/**
+ * Cancelling, through a function rather than an update.
+ *
+ * A plain `update ... set deleted_at` succeeds but comes back empty, because
+ * the read policy hides anything deleted — leaving the client unable to tell a
+ * cancellation from a refusal.
+ */
+export async function cancelEvent(id: string, reason: string): Promise<void> {
+  const { error } = await supabase.rpc("cancel_event", {
+    p_event_id: id,
+    p_reason: reason.trim() || null,
+  });
+  if (error) {
+    const named = Object.keys(CANCEL_TROUBLE).find((k) => error.message.includes(k));
+    if (named) throw new Error(CANCEL_TROUBLE[named]);
+    throw new Error(describeDbError(error));
+  }
+}
+
 export async function createEvent(input: {
   org_id: string;
   matter_id?: string | null;
