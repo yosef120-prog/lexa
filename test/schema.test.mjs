@@ -918,6 +918,277 @@ check("an identifier finds only your own firm's match",
 // An empty query must return nothing rather than everything.
 check("an empty search returns nothing", (await searchAs(UID_A, "   ")).length, 0);
 
+// --- tasks -------------------------------------------------------------------
+const taskId = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    insert into public.tasks (org_id, matter_id, title, assignee_user_id, due_date)
+    values ('${orgA}', '${matterA1.id}', 'להגיש בקשה לארכה', '${UID_C_TIMER}', current_date + 3)
+    returning id, status::text
+  `);
+  return r.rows[0];
+});
+check("a task starts open", taskId.status, "open");
+
+const taskOnFeed = await asUser(UID_A, async () =>
+  (await db.query(`select body from public.matter_activity where body like 'משימה:%'`)).rows[0]?.body,
+);
+check("a matter's task reaches its timeline", /להגיש בקשה לארכה/.test(taskOnFeed ?? ""), true);
+
+// A firm-level task belongs to nobody's file and must not need one.
+const firmTask = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    insert into public.tasks (org_id, title) values ('${orgA}', 'לחדש ביטוח משרד') returning id
+  `);
+  return r.rows.length;
+});
+check("a task can belong to the firm rather than a matter", firmTask, 1);
+
+// A finished task must say when, so no screen has to interpret the gap.
+let doneWithoutDate = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`update public.tasks set status = 'done' where id = '${taskId.id}'`);
+  });
+} catch {
+  doneWithoutDate = true;
+}
+check("a task cannot be done without a completion time", doneWithoutDate, true);
+
+// Being asked to do something and being unable to mark it done is what sends
+// people back to a paper list.
+const internFinished = await asUser(UID_C_TIMER, async () => {
+  const r = await db.query(`
+    update public.tasks set status = 'done', completed_at = now(), completed_by = '${UID_C_TIMER}'
+    where id = '${taskId.id}' returning id
+  `);
+  return r.rows.length;
+});
+check("an intern can finish a task assigned to them", internFinished, 1);
+
+const internCreated = await asUser(UID_C_TIMER, async () => {
+  try {
+    const r = await db.query(`
+      insert into public.tasks (org_id, title) values ('${orgA}', 'של מתמחה') returning id
+    `);
+    return r.rows.length;
+  } catch {
+    return 0;
+  }
+});
+check("but cannot create one", internCreated, 0);
+
+const bSeesTasks = await asUser(UID_B, async () =>
+  (await db.query(`select id from public.tasks`)).rows.length,
+);
+check("tasks are firm-scoped", bSeesTasks, 0);
+
+// --- invitations -------------------------------------------------------------
+const UID_INVITEE = "66666666-6666-6666-6666-666666666666";
+const UID_STRANGER = "77777777-7777-7777-7777-777777777777";
+await db.exec(`
+  insert into auth.users (id, email) values
+    ('${UID_INVITEE}', 'secretary@example.com'),
+    ('${UID_STRANGER}', 'stranger@example.com');
+`);
+
+const inviteToken = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    insert into public.org_invitations (org_id, email, role)
+    values ('${orgA}', 'secretary@example.com', 'secretary')
+    returning token
+  `);
+  return r.rows[0].token;
+});
+// This string is the only thing between a forwarded message and a seat inside
+// a law firm, so it has to be long.
+check("the token is long enough to be unguessable", inviteToken.length >= 64, true);
+
+// Only an owner decides who joins.
+let internInvited = false;
+try {
+  await asUser(UID_C_TIMER, async () => {
+    await db.query(`
+      insert into public.org_invitations (org_id, email, role)
+      values ('${orgA}', 'someone@example.com', 'lawyer')
+    `);
+  });
+} catch {
+  internInvited = true;
+}
+check("only an owner can invite", internInvited, true);
+
+// A link that reaches the wrong inbox must be worth nothing.
+let wrongAccount = false;
+try {
+  await asUser(UID_STRANGER, async () => {
+    await db.query(`select public.accept_invitation('${inviteToken}')`);
+  });
+} catch (e) {
+  wrongAccount = /INVITE_WRONG_ACCOUNT/.test(String(e.message));
+}
+check("an invitation cannot be used from another account", wrongAccount, true);
+
+const joinedOrg = await asUser(UID_INVITEE, async () => {
+  const r = await db.query(`select public.accept_invitation('${inviteToken}') as org`);
+  return r.rows[0].org;
+});
+check("the invited address joins the firm", joinedOrg, orgA);
+
+const newRole = await db.query(
+  `select role::text from public.org_members where user_id = '${UID_INVITEE}'`,
+);
+check("with the role they were offered", newRole.rows[0]?.role, "secretary");
+
+// A used link must not work twice, or a forwarded message is a second seat.
+let reused = false;
+try {
+  await asUser(UID_INVITEE, async () => {
+    await db.query(`select public.accept_invitation('${inviteToken}')`);
+  });
+} catch (e) {
+  reused = /INVITE_ALREADY_USED/.test(String(e.message));
+}
+check("and cannot be used a second time", reused, true);
+
+// Enough to tell someone whether the link is for them, and nothing that helps
+// a stranger who found it.
+const peek = await asUser(UID_STRANGER, async () =>
+  (await db.query(`select * from public.peek_invitation('${inviteToken}')`)).rows[0],
+);
+check("a spent invitation previews as invalid", peek?.valid, false);
+check("and says why", peek?.reason, "INVITE_ALREADY_USED");
+
+const expiredToken = await asUser(UID_A, async () => {
+  const r = await db.query(`
+    insert into public.org_invitations (org_id, email, role, expires_at)
+    values ('${orgA}', 'late@example.com', 'lawyer', now() - interval '1 day')
+    returning token
+  `);
+  return r.rows[0].token;
+});
+const expiredPeek = await asUser(UID_STRANGER, async () =>
+  (await db.query(`select * from public.peek_invitation('${expiredToken}')`)).rows[0],
+);
+check("an expired invitation says so rather than failing silently", expiredPeek?.reason, "INVITE_EXPIRED");
+
+// Colleagues can now see each other, which the profiles policy promised.
+const inviteeSeesColleagues = await asUser(UID_INVITEE, async () =>
+  (await db.query(`select id from public.profiles`)).rows.length,
+);
+check("a new member can see their colleagues' names", inviteeSeesColleagues > 1, true);
+
+const bSeesInvites = await asUser(UID_B, async () =>
+  (await db.query(`select id from public.org_invitations`)).rows.length,
+);
+check("invitations are firm-scoped", bSeesInvites, 0);
+
+// --- payment demands ---------------------------------------------------------
+// Two hours at 600, recorded by hand so the arithmetic is checkable.
+await asUser(UID_A, async () => {
+  await db.query(`
+    insert into public.time_entries (org_id, matter_id, user_id, started_at, minutes, description, rate)
+    values ('${orgA}', '${matterA2Id}', '${UID_A}', now() - interval '2 hours', 120, 'ישיבת הכנה', 600)
+  `);
+});
+
+const invoiceId = await asUser(UID_A, async () => {
+  const r = await db.query(`select public.create_invoice_from_unbilled('${matterA2Id}') as id`);
+  return r.rows[0].id;
+});
+
+const invoice = await asUser(UID_A, async () =>
+  (await db.query(`
+    select number, status::text, subtotal::text, vat::text, total::text
+    from public.invoices where id = '${invoiceId}'
+  `)).rows[0],
+);
+check("the firm's first demand is numbered 1", invoice.number, 1);
+check("it starts as a draft", invoice.status, "draft");
+
+// Tied to the lines rather than to arithmetic written here: a total that
+// disagrees with what it is made of is the bug worth catching, and hard-coded
+// figures only test whether the test author can multiply.
+const totals = await asUser(UID_A, async () =>
+  (await db.query(`
+    select
+      (select sum(amount) from public.invoice_lines where invoice_id = '${invoiceId}')::text as lines_sum,
+      subtotal::text, vat::text, total::text,
+      round(subtotal * vat_rate / 100, 2)::text as expected_vat,
+      (subtotal + vat)::text                    as expected_total
+    from public.invoices where id = '${invoiceId}'
+  `)).rows[0],
+);
+check("the subtotal is exactly what the lines add up to", totals.subtotal, totals.lines_sum);
+check("VAT is the stored rate applied to it", totals.vat, totals.expected_vat);
+check("and the total is subtotal plus VAT", totals.total, totals.expected_total);
+// Two hours at 600 is the priced work on this matter.
+check("which comes to two hours at the recorded rate", totals.subtotal, "1200.00");
+
+// Every line came from an entry, and every one of those entries is now spoken
+// for. Comparing the two counts is what proves nothing was billed loose.
+const claimed = await asUser(UID_A, async () =>
+  (await db.query(`
+    select
+      (select count(*) from public.time_entries where invoice_id = '${invoiceId}')::int as entries,
+      (select count(*) from public.invoice_lines where invoice_id = '${invoiceId}')::int as lines
+  `)).rows[0],
+);
+check("every line has an entry claimed behind it", claimed.entries, claimed.lines);
+check("and that is the priced work on the matter", claimed.entries, 1);
+
+// Billing the same work twice is the failure that costs a firm a client.
+let billedTwice = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`select public.create_invoice_from_unbilled('${matterA2Id}')`);
+  });
+} catch (e) {
+  billedTwice = /NOTHING_TO_BILL/.test(String(e.message));
+}
+check("the same work cannot be billed twice", billedTwice, true);
+
+// Cancelling has to release the time, or the work is lost rather than rebilled.
+await asUser(UID_A, async () => {
+  await db.query(`select public.cancel_invoice('${invoiceId}')`);
+});
+const released = await asUser(UID_A, async () =>
+  (await db.query(`
+    select count(*)::int as n from public.time_entries where invoice_id = '${invoiceId}'
+  `)).rows[0].n,
+);
+check("cancelling frees the time it had claimed", released, 0);
+check("and the demand says it was cancelled", await asUser(UID_A, async () =>
+  (await db.query(`select status::text from public.invoices where id = '${invoiceId}'`)).rows[0].status,
+), "cancelled");
+
+// Time recorded without a rate is real work nobody can price, and guessing on
+// an invoice is the wrong kind of help.
+await asUser(UID_A, async () => {
+  await db.query(`
+    insert into public.time_entries (org_id, matter_id, user_id, started_at, minutes, description)
+    values ('${orgA}', '${matterA1.id}', '${UID_A}', now(), 45, 'ללא תעריף')
+  `);
+});
+let unpriced = false;
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`select public.create_invoice_from_unbilled('${matterA1.id}')`);
+  });
+} catch (e) {
+  unpriced = /NOTHING_TO_BILL/.test(String(e.message));
+}
+check("unpriced work is not invented into a price", unpriced, true);
+
+const internSeesInvoices = await asUser(UID_C_TIMER, async () =>
+  (await db.query(`select id from public.invoices`)).rows.length,
+);
+check("an intern does not see the firm's invoices", internSeesInvoices, 0);
+
+const bSeesInvoices = await asUser(UID_B, async () =>
+  (await db.query(`select id from public.invoices`)).rows.length,
+);
+check("invoices are firm-scoped", bSeesInvoices, 0);
+
 // --- soft delete actually hides things ---------------------------------------
 // Regression: the write policies were declared FOR ALL, which covers SELECT.
 // Permissive policies OR together, so for anyone able to write, the read
@@ -1041,13 +1312,18 @@ check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "fee_agreements", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "filing_bundle_items", privs: "DELETE,INSERT,SELECT,UPDATE" },
   { table_name: "filing_bundles", privs: "INSERT,SELECT,UPDATE" },
+  { table_name: "invoice_lines", privs: "SELECT" },
+  { table_name: "invoice_numbers", privs: "SELECT" },
+  { table_name: "invoices", privs: "SELECT,UPDATE" },
   { table_name: "matter_activity", privs: "INSERT,SELECT" },
   { table_name: "matter_numbers", privs: "SELECT" },
   { table_name: "matter_parties", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "matters", privs: "INSERT,SELECT,UPDATE" },
+  { table_name: "org_invitations", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "org_members", privs: "DELETE,INSERT,SELECT,UPDATE" },
   { table_name: "organizations", privs: "SELECT,UPDATE" },
   { table_name: "profiles", privs: "SELECT,UPDATE" },
+  { table_name: "tasks", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "time_entries", privs: "INSERT,SELECT,UPDATE" },
 ]);
 
