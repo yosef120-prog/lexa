@@ -250,11 +250,18 @@ function FirmIdentity({ firm, onChanged }: { firm: Firm; onChanged: () => Promis
           required
         />
         {error && <ErrorNote>{error}</ErrorNote>}
-        {name.trim() !== firm.name && (
-          <Button type="submit" disabled={busy} className="self-start">
-            {busy ? "שומר..." : "שמור שם"}
-          </Button>
-        )}
+
+        {/* Always here, greyed until there is something to save. A button that
+            appears only once the text changes is a button somebody types into
+            the field and then goes looking for — and on a phone the keyboard
+            is over the place it would have appeared. */}
+        <Button
+          type="submit"
+          disabled={busy || !name.trim() || name.trim() === firm.name}
+          className="self-start"
+        >
+          {busy ? "שומר..." : name.trim() === firm.name ? "השם נשמר" : "שמור שם"}
+        </Button>
       </form>
     </Card>
   );
