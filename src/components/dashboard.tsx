@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { loadSnapshot, type Snapshot } from "@/lib/dashboard";
+import { listOutstandingDocuments, type OutstandingIntake } from "@/lib/intake";
 import { formatMoney } from "@/lib/billing";
 import { Card } from "@/components/ui";
 
@@ -9,6 +10,8 @@ type Go = {
   tasks: () => void;
   diary: () => void;
   clients: () => void;
+  /** Straight to one client's card, because chasing a document starts there. */
+  client: (id: string) => void;
 };
 
 /**
@@ -25,6 +28,7 @@ type Go = {
 export function Dashboard({ go }: { go: Go }) {
   const { membership, session } = useAuth();
   const [snap, setSnap] = useState<Snapshot | null>(null);
+  const [owed, setOwed] = useState<OutstandingIntake[]>([]);
 
   useEffect(() => {
     loadSnapshot()
@@ -32,6 +36,11 @@ export function Dashboard({ go }: { go: Go }) {
       // The rest of the firm screen still works; a broken count is not worth
       // taking the page down for.
       .catch((e) => console.warn("dashboard unavailable", e));
+
+    // Loaded separately so a failure here costs the list and not the screen.
+    listOutstandingDocuments()
+      .then(setOwed)
+      .catch((e) => console.warn("outstanding documents unavailable", e));
   }, []);
 
   const hour = new Date().getHours();
@@ -40,28 +49,35 @@ export function Dashboard({ go }: { go: Go }) {
 
   const needs = snap
     ? [
+        // Both wordings, because "1 משימות באיחור" is not Hebrew and this is
+        // the line a lawyer reads first in the morning.
         {
           n: snap.diary.overdue,
           label: "מועדים שעברו ולא נסגרו",
+          one: "מועד שעבר ולא נסגר",
           tone: "danger" as const,
           onClick: go.diary,
         },
-        { n: snap.tasks.overdue, label: "משימות באיחור", tone: "danger" as const, onClick: go.tasks },
+        {
+          n: snap.tasks.overdue,
+          label: "משימות באיחור",
+          one: "משימה באיחור",
+          tone: "danger" as const,
+          onClick: go.tasks,
+        },
         {
           n: snap.intakes.arrived,
           label: "שאלונים שחזרו וטרם נקראו",
+          one: "שאלון שחזר וטרם נקרא",
           tone: "good" as const,
           onClick: go.clients,
         },
-        {
-          n: snap.intakes.missingDocs,
-          label: "שאלונים שחסרים בהם מסמכים",
-          tone: "warn" as const,
-          onClick: go.clients,
-        },
+        // The questionnaires missing documents are not counted here. A number
+        // cannot be chased; the list below names the client and the documents.
         {
           n: snap.diary.soon,
           label: "מועדים בשבוע הקרוב",
+          one: "מועד בשבוע הקרוב",
           tone: "warn" as const,
           onClick: go.diary,
         },
@@ -105,15 +121,63 @@ export function Dashboard({ go }: { go: Go }) {
                   >
                     {r.n}
                   </span>
-                  <span className="flex-1 text-sm font-semibold">{r.label}</span>
+                  <span className="flex-1 text-sm font-semibold">
+                    {r.n === 1 ? r.one : r.label}
+                  </span>
                   <span className="shrink-0 text-muted">←</span>
                 </button>
               ))}
             </Card>
-          ) : (
+          ) : owed.length === 0 ? (
             <Card className="text-sm text-ink-soft">
               אין מועד שעבר, משימה באיחור או שאלון שממתין. הכל מטופל.
             </Card>
+          ) : null}
+
+          {/* Named, not counted.
+              "1 questionnaires missing documents" is a number a firm can read
+              and cannot act on: not which client, not what to ask for, not
+              whether it is one document or four. Chasing a document means
+              phoning somebody and saying its name, so the name is what this
+              shows — and the row opens that client's card. */}
+          {owed.length > 0 && (
+            <div>
+              <h2 className="mb-2 text-xs font-bold tracking-wide text-muted">
+                מסמכים שהלקוח עוד לא שלח
+              </h2>
+              <Card className="flex flex-col gap-0 p-0">
+                {owed.map((intake, i) => (
+                  <button
+                    key={intake.id}
+                    onClick={() => intake.client && go.client(intake.client.id)}
+                    className={`flex flex-col gap-1.5 px-4 py-3 text-start hover:bg-ground ${
+                      i > 0 ? "border-t border-rule" : ""
+                    }`}
+                  >
+                    <span className="flex items-baseline gap-2">
+                      <span className="text-sm font-bold">
+                        {intake.client?.name ?? "לקוח"}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate text-xs text-muted">
+                        {intake.form?.name}
+                      </span>
+                      <span className="shrink-0 text-muted">←</span>
+                    </span>
+
+                    <ul className="flex flex-col gap-0.5">
+                      {intake.documents.map((label) => (
+                        <li key={label} className="text-sm text-ink-soft">
+                          <span aria-hidden className="text-warning">
+                            •{" "}
+                          </span>
+                          {label}
+                        </li>
+                      ))}
+                    </ul>
+                  </button>
+                ))}
+              </Card>
+            </div>
           )}
 
           <div>

@@ -198,6 +198,7 @@ export function AppShell() {
               tasks: () => go("tasks"),
               diary: () => go("diary"),
               clients: () => go("clients"),
+              client: openClientFrom,
             }}
           />
         ) : tab === "tasks" && !openMatter ? (

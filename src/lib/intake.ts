@@ -470,3 +470,75 @@ export function answerText(question: IntakeQuestion, answer: IntakeAnswer | unde
       return answer.value_text || "—";
   }
 }
+
+export type OutstandingIntake = {
+  id: string;
+  token: string;
+  client: { id: string; name: string } | null;
+  form: { name: string } | null;
+  /** The documents the client said were coming, by the label they were asked under. */
+  documents: string[];
+};
+
+/**
+ * Who still owes which documents, named.
+ *
+ * A count of questionnaires missing documents tells the firm a number and
+ * nothing it can act on: not which client, not what to chase, not whether it
+ * is one form or four. Chasing a document means picking up the phone and
+ * saying its name, so the list has to carry the name.
+ *
+ * Two queries rather than one nested filter: the answers carry their question
+ * labels, and matching them to intakes here keeps a client with nothing
+ * outstanding from disappearing on a join technicality.
+ */
+export async function listOutstandingDocuments(): Promise<OutstandingIntake[]> {
+  const { data: intakes, error: intakeError } = await supabase
+    .from("client_intakes")
+    .select("id, token, client:clients(id, name), form:intake_forms(name)")
+    .eq("status", "partial")
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (intakeError) throw new Error(describeDbError(intakeError));
+
+  const ids = (intakes ?? []).map((i) => (i as { id: string }).id);
+  if (ids.length === 0) return [];
+
+  const { data: owed, error: owedError } = await supabase
+    .from("intake_answers")
+    .select("intake_id, question:intake_questions(label, position)")
+    .eq("status", "later")
+    .in("intake_id", ids);
+  if (owedError) throw new Error(describeDbError(owedError));
+
+  const one = <T,>(v: unknown): T | null =>
+    Array.isArray(v) ? ((v[0] as T) ?? null) : ((v as T) ?? null);
+
+  // Kept in the order the client was asked, so the list reads like the form
+  // rather than like whatever order the rows came back in.
+  const byIntake = new Map<string, { label: string; position: number }[]>();
+  for (const row of owed ?? []) {
+    const r = row as Record<string, unknown>;
+    const q = one<{ label: string; position: number }>(r.question);
+    if (!q) continue;
+    const id = r.intake_id as string;
+    byIntake.set(id, [...(byIntake.get(id) ?? []), q]);
+  }
+
+  return (intakes ?? [])
+    .map((row) => {
+      const r = row as Record<string, unknown>;
+      return {
+        id: r.id as string,
+        token: r.token as string,
+        client: one<{ id: string; name: string }>(r.client),
+        form: one<{ name: string }>(r.form),
+        documents: (byIntake.get(r.id as string) ?? [])
+          .sort((a, b) => a.position - b.position)
+          .map((q) => q.label),
+      };
+    })
+    // A partial intake with nothing outstanding is a contradiction the firm
+    // cannot act on, so it is not shown as work.
+    .filter((i) => i.documents.length > 0);
+}

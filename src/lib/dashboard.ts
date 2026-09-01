@@ -20,7 +20,7 @@ export type Snapshot = {
   matters: { open: number; onHold: number; closed: number };
   tasks: { open: number; overdue: number };
   diary: { soon: number; overdue: number };
-  intakes: { waiting: number; missingDocs: number; arrived: number };
+  intakes: { waiting: number; arrived: number };
   money: { unbilled: number; awaitingPayment: number } | null;
 };
 
@@ -61,7 +61,6 @@ export async function loadSnapshot(): Promise<Snapshot> {
     diarySoon,
     diaryOverdue,
     waiting,
-    missingDocs,
     arrived,
     money,
   ] = await Promise.all([
@@ -75,7 +74,9 @@ export async function loadSnapshot(): Promise<Snapshot> {
     countOf("events", (q) => q.gte("starts_at", now).lte("starts_at", inDays(7))),
     countOf("events", (q) => q.lt("starts_at", today)),
     countOf("client_intakes", (q) => q.in("status", ["sent", "opened"])),
-    countOf("client_intakes", (q) => q.eq("status", "partial")),
+    // Questionnaires missing documents are not counted here. A count of them
+    // was on the dashboard and could not be acted on; listOutstandingDocuments
+    // names the client and the documents instead.
     countOf("client_intakes", (q) => q.eq("status", "submitted").is("reviewed_at", null)),
     loadMoney(),
   ]);
@@ -85,7 +86,7 @@ export async function loadSnapshot(): Promise<Snapshot> {
     matters: { open, onHold, closed },
     tasks: { open: tasksOpen, overdue: tasksOverdue },
     diary: { soon: diarySoon, overdue: diaryOverdue },
-    intakes: { waiting, missingDocs, arrived },
+    intakes: { waiting, arrived },
     money,
   };
 }
