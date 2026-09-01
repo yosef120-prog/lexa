@@ -268,6 +268,12 @@ function QuestionRow({
 }) {
   const parent = all.find((p) => p.id === q.depends_on_question_id);
 
+  // A condition survives a reorder that moves its parent below it, and then
+  // silently never matches: the client is asked the parent after the point
+  // where the answer was needed, so the dependent question never appears. The
+  // arrows make this one click away, so it has to be visible.
+  const parentIsLater = parent ? all.indexOf(parent) > i : false;
+
   return (
     <div className="flex items-start justify-between gap-2">
       <div className="flex min-w-0 flex-1 gap-2">
@@ -293,8 +299,15 @@ function QuestionRow({
                     : q.depends_on_value}
               </>
             )}
+            {q.required && !parent && " · חובה"}
           </span>
           {q.help && <span className="text-xs text-muted">{q.help}</span>}
+          {parentIsLater && (
+            <span className="mt-0.5 rounded bg-danger/10 px-1.5 py-0.5 text-xs font-semibold text-danger">
+              השאלה שהיא תלויה בה מופיעה אחריה — היא לעולם לא תוצג ללקוח. הזז אותה למטה, או
+              את השאלה השנייה למעלה.
+            </span>
+          )}
         </div>
       </div>
 

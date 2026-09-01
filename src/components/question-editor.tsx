@@ -165,8 +165,21 @@ export function QuestionEditor({
         </label>
       )}
 
-      {canBeParent.length > 0 && (
-        <div className="flex flex-col gap-2 border-t border-rule pt-2">
+      {/* Always on screen, even when nothing can be depended on yet. Hidden,
+          the feature does not exist as far as anyone is concerned — and the
+          person who most needs it is the one editing question three. */}
+      <div className="flex flex-col gap-2 border-t border-rule pt-2">
+        {canBeParent.length === 0 ? (
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-semibold">הצג רק אם...</span>
+            <span className="text-xs text-muted">
+              שאלה מותנית תלויה בשאלת <span className="font-semibold">כן/לא</span> או{" "}
+              <span className="font-semibold">בחירה</span> שמופיעה לפניה. אם אין כזו — הוסף
+              אותה, והזז אותה למעלה בעזרת החיצים.
+            </span>
+          </div>
+        ) : (
+          <>
           <label className="flex flex-col gap-1.5">
             <span className="text-sm font-semibold">הצג רק אם...</span>
             <select
@@ -204,17 +217,25 @@ export function QuestionEditor({
               </select>
             </label>
           )}
-        </div>
-      )}
+          </>
+        )}
+      </div>
 
-      <label className="flex items-center gap-2 text-sm">
+      <label className="flex items-start gap-2 border-t border-rule pt-2 text-sm">
         <input
           type="checkbox"
           checked={draft.required}
           onChange={(e) => set("required", e.target.checked)}
-          className="h-4 w-4 accent-[var(--color-brand,#0e6e6e)]"
+          className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-brand,#0e6e6e)]"
         />
-        חובה
+        <span className="flex flex-col">
+          <span className="font-semibold">חובה</span>
+          <span className="text-xs text-muted">
+            {draft.depends_on_question_id
+              ? "חובה רק כשהשאלה מוצגת. אם התנאי לא מתקיים, אף אחד לא נתקע עליה."
+              : "בלעדיה הלקוח לא יוכל לשלוח את הטופס."}
+          </span>
+        </span>
       </label>
 
       {error && <ErrorNote>{error}</ErrorNote>}
