@@ -16,6 +16,7 @@ import { count } from "@/lib/hebrew";
 import { ExportPanel } from "@/components/export-panel";
 import { MfaPanel } from "@/components/mfa-panel";
 import { IntakeBuilder } from "@/components/intake-builder";
+import { Dashboard } from "@/components/dashboard";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
 const INVITABLE: OrgRole[] = ["lawyer", "intern", "secretary"];
@@ -26,7 +27,11 @@ const INVITABLE: OrgRole[] = ["lawyer", "intern", "secretary"];
  * Nothing here sends an email: there is no sending domain on this project, and
  * a link the owner passes on themselves is a promise the system can keep.
  */
-export function TeamScreen() {
+export function TeamScreen({
+  go,
+}: {
+  go: { matters: () => void; tasks: () => void; diary: () => void; clients: () => void };
+}) {
   const { membership, session, signOut } = useAuth();
   const [members, setMembers] = useState<Member[]>([]);
   const [invites, setInvites] = useState<Invitation[]>([]);
@@ -54,9 +59,19 @@ export function TeamScreen() {
 
   return (
     <div className="mx-auto w-full max-w-3xl p-4 sm:p-6">
-      <div className="mb-5 flex items-center justify-between">
+      <Dashboard go={go} />
+
+      {/* Everything below is settings. Separated by a rule and a heading
+          rather than a tab, because these are things a firm touches on the
+          first day and then rarely — but when they do, they should not have to
+          go looking. */}
+      <div className="mt-8 border-t border-rule pt-6">
+        <h2 className="text-lg font-bold">הגדרות המשרד</h2>
+      </div>
+
+      <div className="mb-5 mt-5 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">המשרד</h1>
+          <h3 className="font-bold">משתמשים</h3>
           <p className="text-sm text-muted">
             {loading ? "טוען..." : count(members.length, "משתמש אחד", "משתמשים")}
           </p>

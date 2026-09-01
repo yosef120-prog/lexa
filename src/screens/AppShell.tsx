@@ -29,11 +29,11 @@ type Tab = "matters" | "tasks" | "diary" | "clients" | "team";
 // session, and it belongs with the account rather than in the same row as the
 // diary.
 const TABS: Array<{ id: Tab; label: string }> = [
+  { id: "team", label: "המשרד" },
   { id: "matters", label: "תיקים" },
   { id: "tasks", label: "משימות" },
   { id: "diary", label: "יומן" },
   { id: "clients", label: "לקוחות" },
-  { id: "team", label: "המשרד" },
 ];
 
 /**
@@ -48,7 +48,9 @@ const TABS: Array<{ id: Tab; label: string }> = [
  */
 export function AppShell() {
   const { membership, session, signOut } = useAuth();
-  const [tab, setTab] = useState<Tab>("matters");
+  // The firm screen is where the day starts: it opens on what needs doing
+  // rather than on a list of every matter ever opened.
+  const [tab, setTab] = useState<Tab>("team");
   const [openMatter, setOpenMatter] = useState<string | null>(null);
   const [openClient, setOpenClient] = useState<string | null>(null);
 
@@ -142,7 +144,14 @@ export function AppShell() {
         ) : tab === "clients" ? (
           <ClientsScreen onOpenClient={openClientFrom} />
         ) : tab === "team" ? (
-          <TeamScreen />
+          <TeamScreen
+            go={{
+              matters: () => go("matters"),
+              tasks: () => go("tasks"),
+              diary: () => go("diary"),
+              clients: () => go("clients"),
+            }}
+          />
         ) : tab === "tasks" && !openMatter ? (
           <TasksScreen onOpenMatter={openMatterFrom} />
         ) : tab === "diary" && !openMatter ? (
