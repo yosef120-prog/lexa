@@ -233,3 +233,31 @@ export async function removeLogo(orgId: string): Promise<void> {
     .eq("id", orgId);
   if (error) throw new Error(describeDbError(error));
 }
+
+/**
+ * Changing your own name.
+ *
+ * Written in two places on purpose. profiles.full_name is what colleagues see
+ * on a timeline entry and in an assignee list; the auth metadata is what the
+ * session carries, and what the header reads without a round trip. Updating
+ * one and not the other leaves a person renamed to everybody except
+ * themselves.
+ */
+export async function renameSelf(fullName: string): Promise<void> {
+  const name = fullName.trim();
+  if (!name) throw new Error("שם לא יכול להיות ריק.");
+
+  const { data: who } = await supabase.auth.getUser();
+  if (!who.user) throw new Error("התחבר מחדש ונסה שוב.");
+
+  const { error } = await supabase
+    .from("profiles")
+    .update({ full_name: name, updated_at: new Date().toISOString() })
+    .eq("id", who.user.id);
+  if (error) throw new Error(describeDbError(error));
+
+  const { error: metaError } = await supabase.auth.updateUser({
+    data: { full_name: name },
+  });
+  if (metaError) throw new Error("השם נשמר, אך לא התעדכן בכותרת. רענן את הדף.");
+}

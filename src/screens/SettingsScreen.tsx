@@ -10,6 +10,7 @@ import {
   removeLogo,
   removeMember,
   renameFirm,
+  renameSelf,
   revokeInvitation,
   ROLE_EXPLAINS,
   ROLE_LABEL,
@@ -70,22 +71,13 @@ export function SettingsScreen({ onClose }: { onClose: () => void }) {
       {error && <div className="mb-4"><ErrorNote>{error}</ErrorNote></div>}
 
       <Section title="החשבון שלי">
-        <Card className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 flex-col">
-            <span className="text-sm font-semibold">
-              {(session?.user.user_metadata?.full_name as string) || "—"}
-            </span>
-            <span className="truncate text-xs text-muted" dir="ltr">
-              {session?.user.email}
-            </span>
-            <span className="mt-0.5 text-xs text-muted">
-              {membership ? ROLE_LABEL[membership.role] : ""}
-            </span>
-          </div>
-          <Button variant="ghost" onClick={signOut} className="shrink-0">
-            התנתק
-          </Button>
-        </Card>
+        <MyAccount
+          fullName={(session?.user.user_metadata?.full_name as string) ?? ""}
+          email={session?.user.email ?? ""}
+          role={membership ? ROLE_LABEL[membership.role] : ""}
+          onSignOut={signOut}
+          onChanged={reload}
+        />
       </Section>
 
       {firm && isOwner && (
@@ -160,6 +152,79 @@ export function SettingsScreen({ onClose }: { onClose: () => void }) {
         </Section>
       )}
     </div>
+  );
+}
+
+/**
+ * Who you are, as opposed to which firm you belong to.
+ *
+ * The two were easy to confuse when only one of them could be edited: the firm
+ * had a name field and the person did not, so the person's name looked like a
+ * firm setting that refused to change.
+ */
+function MyAccount({
+  fullName,
+  email,
+  role,
+  onSignOut,
+  onChanged,
+}: {
+  fullName: string;
+  email: string;
+  role: string;
+  onSignOut: () => void;
+  onChanged: () => Promise<void>;
+}) {
+  const [name, setName] = useState(fullName);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await renameSelf(name);
+      await onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="flex flex-col gap-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-col">
+          <span className="truncate text-xs text-muted" dir="ltr">
+            {email}
+          </span>
+          <span className="mt-0.5 text-xs text-muted">{role}</span>
+        </div>
+        <Button variant="ghost" onClick={onSignOut} className="shrink-0">
+          התנתק
+        </Button>
+      </div>
+
+      <form onSubmit={save} className="flex flex-col gap-2 border-t border-rule pt-3">
+        <Field
+          label="השם שלי"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          hint="מופיע בציר הזמן של תיק, ובשיוך משימות. אינו שם המשרד."
+          required
+        />
+        {error && <ErrorNote>{error}</ErrorNote>}
+        <Button
+          type="submit"
+          disabled={busy || !name.trim() || name.trim() === fullName}
+          className="self-start"
+        >
+          {busy ? "שומר..." : name.trim() === fullName ? "השם נשמר" : "שמור שם"}
+        </Button>
+      </form>
+    </Card>
   );
 }
 
