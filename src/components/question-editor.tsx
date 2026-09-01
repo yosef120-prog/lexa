@@ -56,7 +56,7 @@ export function QuestionEditor({
   onCancel,
 }: {
   draft: QuestionDraft;
-  /** Questions before this one — the only ones a condition may depend on. */
+  /** Every other question in the form. Order is sorted out on save. */
   earlier: IntakeQuestion[];
   saveLabel: string;
   onSave: (draft: QuestionDraft) => Promise<void>;
@@ -75,6 +75,11 @@ export function QuestionEditor({
   // Only a question with a known set of answers can be depended on. Depending
   // on free text would mean matching strings a client typed, which fails the
   // first time somebody adds a space.
+  //
+  // Anywhere in the form, not only above: if the parent turns out to sit
+  // below, the list is rearranged on save. Making somebody nudge rows with
+  // arrows before they may express a condition is bookkeeping dressed as a
+  // rule.
   const canBeParent = earlier.filter(
     (q) => q.type === "yes_no" || q.type === "single_choice" || q.type === "multi_choice",
   );
@@ -173,9 +178,10 @@ export function QuestionEditor({
           <div className="flex flex-col gap-1">
             <span className="text-sm font-semibold">הצג רק אם...</span>
             <span className="text-xs text-muted">
-              שאלה מותנית תלויה בשאלת <span className="font-semibold">כן/לא</span> או{" "}
-              <span className="font-semibold">בחירה</span> שמופיעה לפניה. אם אין כזו — הוסף
-              אותה, והזז אותה למעלה בעזרת החיצים.
+              כדי שתהיה שאלה מותנית, צריכה להיות בטופס שאלת{" "}
+              <span className="font-semibold">כן/לא</span> או{" "}
+              <span className="font-semibold">בחירה</span> שהיא תלויה בה. בשאלון הזה עוד אין
+              אחת — הוסף אחת, ואז אפשר יהיה לתלות בה שאלות.
             </span>
           </div>
         ) : (

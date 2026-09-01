@@ -211,6 +211,44 @@ export async function swapQuestions(a: IntakeQuestion, b: IntakeQuestion): Promi
   if (error) throw new Error(describeDbError(error));
 }
 
+/**
+ * Writes a whole order at once.
+ *
+ * Used when a condition needs its parent above it. Renumbering everything is
+ * simpler than working out the smallest change, and the unique constraint is
+ * deferred, so the finished order is what gets checked.
+ */
+export async function reorderQuestions(ordered: IntakeQuestion[]): Promise<void> {
+  const { error } = await supabase
+    .from("intake_questions")
+    .upsert(ordered.map((q, i) => ({ id: q.id, position: i + 1 })));
+  if (error) throw new Error(describeDbError(error));
+}
+
+/**
+ * The order this question has to sit in for its condition to work.
+ *
+ * A condition is answered by a question the client has already been shown, so
+ * a dependent below its parent is the only arrangement that functions. Rather
+ * than refuse the choice, the list is rearranged around it: the intent — show
+ * this only if that — is unambiguous, and the ordering is bookkeeping the
+ * person should not have to do.
+ */
+export function orderForCondition(
+  all: IntakeQuestion[],
+  childId: string,
+  parentId: string | null,
+): IntakeQuestion[] | null {
+  if (!parentId) return null;
+  const childAt = all.findIndex((q) => q.id === childId);
+  const parentAt = all.findIndex((q) => q.id === parentId);
+  if (childAt < 0 || parentAt < 0 || parentAt < childAt) return null;
+
+  const rest = all.filter((q) => q.id !== childId);
+  const insertAt = rest.findIndex((q) => q.id === parentId) + 1;
+  return [...rest.slice(0, insertAt), all[childAt], ...rest.slice(insertAt)];
+}
+
 export async function updateForm(
   id: string,
   patch: { name: string; intro: string },

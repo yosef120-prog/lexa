@@ -7,6 +7,8 @@ import {
   listQuestions,
   QUESTION_TYPE_LABEL,
   removeQuestion,
+  orderForCondition,
+  reorderQuestions,
   swapQuestions,
   updateForm,
   updateQuestion,
@@ -166,10 +168,19 @@ export function IntakeBuilder() {
                 {editingId === q.id ? (
                   <QuestionEditor
                     draft={draftFrom(q)}
-                    earlier={questions.slice(0, i)}
+                    earlier={questions.filter((other) => other.id !== q.id)}
                     saveLabel="שמור שינויים"
                     onSave={async (d: QuestionDraft) => {
                       await updateQuestion(q.id, d);
+                      // A condition only works when its parent comes first, so
+                      // the list is rearranged around the choice rather than
+                      // the choice being refused.
+                      const fixed = orderForCondition(
+                        questions,
+                        q.id,
+                        d.depends_on_question_id,
+                      );
+                      if (fixed) await reorderQuestions(fixed);
                       setEditingId(null);
                       await reload();
                     }}
@@ -210,7 +221,11 @@ export function IntakeBuilder() {
                 });
                 // The condition goes in a second call rather than as another
                 // argument to addQuestion: one way to express it, not two.
-                if (d.depends_on_question_id) await updateQuestion(id, d);
+                if (d.depends_on_question_id) {
+                  await updateQuestion(id, d);
+                  // The new question is last, so a parent anywhere above it
+                  // already works; nothing needs moving.
+                }
                 setAdding(false);
                 await reload();
               }}
