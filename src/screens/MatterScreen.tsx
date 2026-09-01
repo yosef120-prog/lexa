@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "@/lib/auth";
 import { softDeleteMatter, STATUS_LABEL, type Matter, type MatterStatus } from "@/lib/matters";
+import { listClients, type Client } from "@/lib/clients";
 import {
   addNote,
   addParty,
   getMatter,
   getParties,
   getTimeline,
+  linkPartyToClient,
   PARTY_SIDE_LABEL,
   setMatterStatus,
   type Activity,
@@ -32,6 +34,7 @@ import { listInvoices, type Invoice } from "@/lib/invoices";
 import { InvoicesPanel } from "@/components/invoices-panel";
 import { listBundles, type FilingBundle } from "@/lib/filing";
 import { FilingPanel } from "@/components/filing-panel";
+import { PaymentsPanel } from "@/components/payments-panel";
 import { DeleteButton } from "@/components/delete-button";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
@@ -146,6 +149,8 @@ export function MatterScreen({ matterId, onBack }: { matterId: string; onBack: (
             entries={timeEntries}
             onChanged={reload}
           />
+          {/* Entered here, on the deal, and read from both sides' cards. */}
+          <PaymentsPanel matterId={matterId} />
           <Parties matterId={matterId} parties={parties} onAdded={reload} />
           <DocumentsPanel matterId={matterId} groups={documents} onChanged={reload} />
           <FilingPanel
@@ -342,6 +347,14 @@ function Parties({
   parties: Party[];
   onAdded: () => void;
 }) {
+  // Offered so a party can be tied to a card. Loaded here rather than passed
+  // down because this is the only place that needs the whole list.
+  const [clients, setClients] = useState<Client[]>([]);
+  useEffect(() => {
+    listClients()
+      .then(setClients)
+      .catch(() => setClients([]));
+  }, []);
   const { membership } = useAuth();
   const [adding, setAdding] = useState(false);
   const [side, setSide] = useState<PartySide>("opposing");
@@ -396,7 +409,7 @@ function Parties({
 
       <ul className="flex flex-col gap-2">
         {parties.map((p) => (
-          <li key={p.id} className="flex flex-col">
+          <li key={p.id} className="flex flex-col gap-1">
             <span className="font-semibold">{p.name}</span>
             <span className="text-xs text-muted">
               {PARTY_SIDE_LABEL[p.side]}
@@ -407,6 +420,28 @@ function Parties({
                 </>
               )}
             </span>
+
+            {/* What makes the payment schedule reach the other side. A party
+                tied to a card sees the agreed dates on it; one left untied
+                stays a name, which is often all the firm has. */}
+            <label className="flex items-center gap-1.5 text-xs text-muted">
+              <span className="shrink-0">כרטיס לקוח:</span>
+              <select
+                value={p.client_id ?? ""}
+                onChange={async (e) => {
+                  await linkPartyToClient(p.id, e.target.value || null);
+                  onAdded();
+                }}
+                className="min-w-0 flex-1 rounded border border-rule bg-surface px-1.5 py-1"
+              >
+                <option value="">ללא</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
           </li>
         ))}
       </ul>

@@ -16,6 +16,14 @@ export type Party = {
   name: string;
   national_id: string | null;
   notes: string | null;
+  /**
+   * Set when this party also has a client card at the firm.
+   *
+   * Optional because both are ordinary: the other side in a sale sometimes is
+   * a client of the firm and sometimes is only a name. When it is set, the
+   * matter's agreed payment dates reach that person's card too.
+   */
+  client_id: string | null;
 };
 
 export type ActivityKind =
@@ -88,7 +96,7 @@ export async function addNote(input: {
 export async function getParties(matterId: string): Promise<Party[]> {
   const { data, error } = await supabase
     .from("matter_parties")
-    .select("id, side, name, national_id, notes")
+    .select("id, side, name, national_id, notes, client_id")
     .eq("matter_id", matterId)
     .order("created_at", { ascending: true });
   if (error) throw new Error(describeDbError(error));
@@ -101,6 +109,7 @@ export async function addParty(input: {
   side: PartySide;
   name: string;
   national_id: string;
+  client_id?: string | null;
 }): Promise<void> {
   const { error } = await supabase.from("matter_parties").insert({
     org_id: input.org_id,
@@ -108,7 +117,20 @@ export async function addParty(input: {
     side: input.side,
     name: input.name.trim(),
     national_id: input.national_id.trim() || null,
+    client_id: input.client_id || null,
   });
+  if (error) throw new Error(describeDbError(error));
+}
+
+/** Ties an existing party to a client card, or unties them. */
+export async function linkPartyToClient(
+  partyId: string,
+  clientId: string | null,
+): Promise<void> {
+  const { error } = await supabase
+    .from("matter_parties")
+    .update({ client_id: clientId })
+    .eq("id", partyId);
   if (error) throw new Error(describeDbError(error));
 }
 

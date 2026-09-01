@@ -1435,6 +1435,9 @@ const authGrants = await db.query(`
 check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "active_timers", privs: "DELETE,INSERT,SELECT" },
   { table_name: "audit_log", privs: "SELECT" },
+  // Editable and deletable by their author only, which the policies decide.
+  // The grant has to allow both for the policy to have anything to narrow.
+  { table_name: "client_contacts", privs: "DELETE,INSERT,SELECT,UPDATE" },
   { table_name: "client_intakes", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "clients", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "conflict_checks", privs: "INSERT,SELECT" },
@@ -1459,6 +1462,9 @@ check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "org_invitations", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "org_members", privs: "DELETE,INSERT,SELECT,UPDATE" },
   { table_name: "organizations", privs: "SELECT,UPDATE" },
+  // A payment schedule is corrected as often as it is agreed; a wrong date
+  // that cannot be removed is a wrong date the diary keeps announcing.
+  { table_name: "payment_milestones", privs: "DELETE,INSERT,SELECT,UPDATE" },
   { table_name: "profiles", privs: "SELECT,UPDATE" },
   { table_name: "tasks", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "time_entries", privs: "INSERT,SELECT,UPDATE" },
@@ -2082,6 +2088,135 @@ const seatWithName = await asUser(UID_A, async () =>
   `)).rows[0]?.email,
 );
 check("a seat can be read with the name attached", seatWithName, "daniel@example.com");
+
+console.log("\nschema · what was said, and when the money is due\n");
+
+// The call log. A client rings before there is a file and about things no file
+// covers, so this hangs off the client rather than the matter.
+const contact = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.client_contacts (org_id, client_id, channel, body)
+    values ('${orgA}', '${clientA}', 'phone_in', 'התקשר, שאל מתי הכסף הראשון נכנס')
+    returning id, actor_user_id, edited_at
+  `)).rows[0],
+);
+check("a call is logged against the client", contact.actor_user_id, UID_A);
+check("and is not marked edited on the way in", contact.edited_at, null);
+
+const edited = await asUser(UID_A, async () =>
+  (await db.query(`
+    update public.client_contacts set body = 'התקשר, שאל מתי התשלום הראשון נכנס'
+    where id = '${contact.id}' returning edited_at is not null as touched
+  `)).rows[0].touched,
+);
+// Editable, because a call summary is typed while the client is still talking.
+// Stamped, because a note that quietly changed is worth less than one that
+// says it changed.
+check("the author may fix what they wrote", edited, true);
+
+let strangerEdited = 0;
+await asUser(UID_C_TIMER, async () => {
+  strangerEdited = (await db.query(`
+    update public.client_contacts set body = 'לא אני כתבתי את זה'
+    where id = '${contact.id}'
+  `)).affectedRows ?? 0;
+});
+check("a colleague cannot rewrite somebody else's note", strangerEdited, 0);
+
+let outsiderSaw = -1;
+await asUser(UID_B, async () => {
+  outsiderSaw = (await db.query(`select id from public.client_contacts`)).rows.length;
+});
+check("and another firm sees no calls at all", outsiderSaw, 0);
+
+// --- the payment schedule ---------------------------------------------------
+//
+// Agreed once, in one contract, and needed on both sides' cards. It hangs off
+// the matter and reaches a card either by owning the matter or by being a
+// linked party on it.
+const buyer = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.clients (org_id, kind, name, created_by)
+    values ('${orgA}', 'individual', 'הקונה', '${UID_A}') returning id
+  `)).rows[0].id,
+);
+
+await asUser(UID_A, async () => {
+  await db.query(`
+    insert into public.matter_parties (org_id, matter_id, side, name, client_id)
+    values ('${orgA}', '${matterA2Id}', 'opposing', 'הקונה', '${buyer}')
+  `);
+});
+
+const milestone = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.payment_milestones (org_id, matter_id, label, amount, due_date)
+    values ('${orgA}', '${matterA2Id}', 'תשלום ראשון במעמד החתימה', 250000, current_date + 30)
+    returning id, event_id
+  `)).rows[0],
+);
+check("a payment date is entered on the matter", milestone.event_id !== null, true);
+
+// The diary and the reminder mail already work on events. A payment date that
+// needed its own copy of each would be three places to fix.
+const mirrored = await asUser(UID_A, async () =>
+  (await db.query(`
+    select kind::text, all_day, remind_at < starts_at as reminds_first, deleted_at
+    from public.events where id = '${milestone.event_id}'
+  `)).rows[0],
+);
+check("it reaches the diary as a deadline", mirrored.kind, "deadline");
+check("on a day rather than at a time", mirrored.all_day, true);
+check("and is reminded about before it arrives", mirrored.reminds_first, true);
+
+const sellerSees = await asUser(UID_A, async () =>
+  (await db.query(`select label from public.client_payment_milestones('${clientA}')`)).rows,
+);
+check("the seller's card carries it", sellerSees.length, 1);
+
+const buyerSees = await asUser(UID_A, async () =>
+  (await db.query(`select label, matter_name from public.client_payment_milestones('${buyer}')`)).rows,
+);
+// The whole point of the linked party: the same agreed date, from the other
+// side, without anybody re-typing it.
+check("and so does the buyer's, through the link", buyerSees.length, 1);
+check("naming the deal it came from", buyerSees[0]?.matter_name, "עסקת מכר דירה");
+
+const unrelated = await asUser(UID_A, async () =>
+  (await db.query(`select label from public.client_payment_milestones('${clientA}')`)).rows.length,
+);
+check("a client with no link to the deal is unaffected", unrelated, 1);
+
+await asUser(UID_A, async () => {
+  await db.query(`
+    update public.payment_milestones set paid_at = current_date where id = '${milestone.id}'
+  `);
+});
+// Asked outside the policy on purpose: the select policy on events filters
+// `deleted_at is null`, so asking as a member cannot tell a cancelled entry
+// from one that never existed — which is the very thing under test.
+const afterPaid = (await db.query(`
+  select deleted_at is not null as gone from public.events where id = '${milestone.event_id}'
+`)).rows[0].gone;
+// Nagging about money that already arrived is how a firm learns to ignore the
+// diary.
+check("paying it takes the date out of the diary", afterPaid, true);
+
+await asUser(UID_A, async () => {
+  await db.query(`
+    update public.payment_milestones set paid_at = null where id = '${milestone.id}'
+  `);
+});
+const afterUndo = (await db.query(`
+  select deleted_at is null as back from public.events where id = '${milestone.event_id}'
+`)).rows[0].back;
+check("and marking it paid by mistake does not lose the date", afterUndo, true);
+
+let otherFirmPayments = -1;
+await asUser(UID_B, async () => {
+  otherFirmPayments = (await db.query(`select id from public.payment_milestones`)).rows.length;
+});
+check("another firm sees no payment dates", otherFirmPayments, 0);
 
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 

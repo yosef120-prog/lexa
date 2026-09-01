@@ -4,7 +4,10 @@ import { listClients, softDeleteClient, updateClient, type Client } from "@/lib/
 import { listMatters, STATUS_LABEL, type Matter } from "@/lib/matters";
 import { listClientDocuments, type DocumentGroup } from "@/lib/documents";
 import { listClientIntakes, type ClientIntake } from "@/lib/intake";
+import { listClientMilestones, type ClientMilestone } from "@/lib/payments";
 import { IntakePanel } from "@/components/intake-panel";
+import { ContactsPanel } from "@/components/contacts-panel";
+import { ClientPayments } from "@/components/payments-panel";
 import { ClientDocuments } from "@/components/client-documents";
 import { DeleteButton } from "@/components/delete-button";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
@@ -34,6 +37,9 @@ export function ClientScreen({
   const [matters, setMatters] = useState<Matter[]>([]);
   const [documents, setDocuments] = useState<DocumentGroup[]>([]);
   const [intakes, setIntakes] = useState<ClientIntake[]>([]);
+  // Reached from either side of the deal, so this is not simply the matters
+  // list filtered — a buyer linked as a party owns none of them.
+  const [payments, setPayments] = useState<ClientMilestone[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,16 +49,18 @@ export function ClientScreen({
       // The clients list is short and already policy-filtered; a dedicated
       // single-row query would be a second endpoint to keep in step for no gain
       // at this size.
-      const [all, ms, docs, ins] = await Promise.all([
+      const [all, ms, docs, ins, pays] = await Promise.all([
         listClients(),
         listMatters(),
         listClientDocuments(clientId),
         listClientIntakes(clientId),
+        listClientMilestones(clientId),
       ]);
       setClient(all.find((c) => c.id === clientId) ?? null);
       setMatters(ms.filter((m) => m.client?.id === clientId));
       setDocuments(docs);
       setIntakes(ins);
+      setPayments(pays);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -126,6 +134,13 @@ export function ClientScreen({
             onChanged={reload}
             onEditForms={onOpenIntakes}
           />
+          {/* Above the documents, because "when is the next payment" is asked
+              far more often than "where is the contract" — and until now the
+              only way to answer it was to open the contract. */}
+          <ClientPayments rows={payments} onOpenMatter={onOpenMatter} />
+
+          <ContactsPanel clientId={clientId} matters={matters} />
+
           <ClientDocuments
             orgId={membership?.org_id ?? ""}
             clientId={clientId}
