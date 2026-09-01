@@ -27,7 +27,7 @@ const INVITABLE: OrgRole[] = ["lawyer", "intern", "secretary"];
  * a link the owner passes on themselves is a promise the system can keep.
  */
 export function TeamScreen() {
-  const { membership } = useAuth();
+  const { membership, session, signOut } = useAuth();
   const [members, setMembers] = useState<Member[]>([]);
   const [invites, setInvites] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -117,6 +117,21 @@ export function TeamScreen() {
       <IntakeBuilder />
 
       <MfaPanel />
+
+      {/* Signing out sits with the account rather than in the navigation row:
+          it ends a session, it is not somewhere to go. On a phone this is now
+          the only place it lives, so it says which account is being left. */}
+      <Card className="mt-5 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-col">
+          <span className="text-sm font-semibold">מחובר</span>
+          <span className="truncate text-xs text-muted" dir="ltr">
+            {session?.user.email}
+          </span>
+        </div>
+        <Button variant="ghost" onClick={signOut} className="shrink-0">
+          התנתק
+        </Button>
+      </Card>
 
       {isOwner && <div className="mt-5"><ExportPanel /></div>}
     </div>

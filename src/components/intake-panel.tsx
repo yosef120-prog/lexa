@@ -34,11 +34,14 @@ export function IntakePanel({
   clientId,
   intakes,
   onChanged,
+  onEditForms,
 }: {
   orgId: string;
   clientId: string;
   intakes: ClientIntake[];
   onChanged: () => void;
+  /** Opens the firm screen, where the questions are written. */
+  onEditForms: () => void;
 }) {
   const [forms, setForms] = useState<IntakeForm[]>([]);
   const [sending, setSending] = useState(false);
@@ -91,16 +94,27 @@ export function IntakePanel({
           </button>
         </div>
       ) : forms.length === 0 ? (
-        <p className="text-sm text-ink-soft">
-          עוד לא הוגדר שאלון. אפשר להגדיר אחד במסך המשרד, והוא ישמש את כל הלקוחות.
-        </p>
+        <div className="flex flex-col items-start gap-2">
+          <p className="text-sm text-ink-soft">עוד לא הוגדר שאלון.</p>
+          <Button onClick={onEditForms}>הגדר שאלון</Button>
+        </div>
       ) : (
-        <div className="flex flex-wrap gap-1.5">
-          {forms.map((f) => (
-            <Button key={f.id} onClick={() => send(f.id)} disabled={sending}>
-              {sending ? "יוצר..." : `שלח: ${f.name}`}
-            </Button>
-          ))}
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap gap-1.5">
+            {forms.map((f) => (
+              <Button key={f.id} onClick={() => send(f.id)} disabled={sending}>
+                {sending ? "יוצר..." : `שלח: ${f.name}`}
+              </Button>
+            ))}
+          </div>
+          {/* The link belongs here, where somebody is already thinking about
+              questionnaires — not only on a screen they would have to guess at. */}
+          <button
+            onClick={onEditForms}
+            className="self-start text-xs text-ink-soft underline underline-offset-2 hover:text-ink"
+          >
+            ערוך שאלונים, או צור חדש
+          </button>
         </div>
       )}
 

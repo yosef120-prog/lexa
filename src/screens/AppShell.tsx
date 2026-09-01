@@ -20,14 +20,20 @@ const ROLE_LABEL: Record<string, string> = {
 
 type Tab = "matters" | "tasks" | "diary" | "clients" | "team";
 
-// The firm screen is reached through the firm's name in the header rather than
-// from here: it is opened when someone joins or leaves, which is rarely, and a
-// fifth tab would cost every other screen room it uses more often.
+// The firm screen earns its place here. It was reachable only by tapping the
+// firm's name in the header, which is fine on a desktop and invisible on a
+// phone — and it holds the questionnaire builder, which is not a once-a-year
+// screen but the one a firm returns to whenever a question needs rewording.
+//
+// Signing out gave up the slot. It is not a destination, it is the end of a
+// session, and it belongs with the account rather than in the same row as the
+// diary.
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "matters", label: "תיקים" },
   { id: "tasks", label: "משימות" },
   { id: "diary", label: "יומן" },
   { id: "clients", label: "לקוחות" },
+  { id: "team", label: "המשרד" },
 ];
 
 /**
@@ -131,6 +137,7 @@ export function AppShell() {
             clientId={openClient}
             onBack={() => setOpenClient(null)}
             onOpenMatter={openMatterFrom}
+            onOpenFirm={() => go("team")}
           />
         ) : tab === "clients" ? (
           <ClientsScreen onOpenClient={openClientFrom} />
@@ -164,12 +171,6 @@ export function AppShell() {
             {t.label}
           </button>
         ))}
-        <button
-          onClick={signOut}
-          className="flex-1 border-t-2 border-transparent py-3 text-xs font-semibold text-muted"
-        >
-          יציאה
-        </button>
       </nav>
     </div>
   );
