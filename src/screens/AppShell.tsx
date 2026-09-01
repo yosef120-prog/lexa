@@ -10,6 +10,7 @@ import { MatterScreen } from "@/screens/MatterScreen";
 import { DiaryScreen } from "@/screens/DiaryScreen";
 import { TasksScreen } from "@/screens/TasksScreen";
 import { TeamScreen } from "@/screens/TeamScreen";
+import { QuestionnairesScreen } from "@/screens/QuestionnairesScreen";
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "בעלים",
@@ -18,7 +19,7 @@ const ROLE_LABEL: Record<string, string> = {
   secretary: "מזכירה",
 };
 
-type Tab = "matters" | "tasks" | "diary" | "clients" | "team";
+type Tab = "matters" | "tasks" | "diary" | "clients" | "intakes" | "team";
 
 // The firm screen earns its place here. It was reachable only by tapping the
 // firm's name in the header, which is fine on a desktop and invisible on a
@@ -31,9 +32,10 @@ type Tab = "matters" | "tasks" | "diary" | "clients" | "team";
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "team", label: "המשרד" },
   { id: "matters", label: "תיקים" },
-  { id: "tasks", label: "משימות" },
-  { id: "diary", label: "יומן" },
   { id: "clients", label: "לקוחות" },
+  { id: "intakes", label: "שאלונים" },
+  { id: "diary", label: "יומן" },
+  { id: "tasks", label: "משימות" },
 ];
 
 /**
@@ -139,10 +141,12 @@ export function AppShell() {
             clientId={openClient}
             onBack={() => setOpenClient(null)}
             onOpenMatter={openMatterFrom}
-            onOpenFirm={() => go("team")}
+            onOpenIntakes={() => go("intakes")}
           />
         ) : tab === "clients" ? (
           <ClientsScreen onOpenClient={openClientFrom} />
+        ) : tab === "intakes" ? (
+          <QuestionnairesScreen onOpenClient={openClientFrom} />
         ) : tab === "team" ? (
           <TeamScreen
             go={{
@@ -173,7 +177,7 @@ export function AppShell() {
             key={t.id}
             onClick={() => go(t.id)}
             aria-current={tab === t.id ? "page" : undefined}
-            className={`flex-1 border-t-2 py-3 text-xs font-semibold ${
+            className={`flex-1 border-t-2 px-0.5 py-3 text-[11px] font-semibold ${
               tab === t.id ? "border-brand text-brand" : "border-transparent text-muted"
             }`}
           >

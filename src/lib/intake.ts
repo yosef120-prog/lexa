@@ -309,6 +309,36 @@ export async function revokeIntake(id: string): Promise<void> {
   if (error) throw new Error(describeDbError(error));
 }
 
+export type IntakeOverview = ClientIntake & {
+  client: { id: string; name: string } | null;
+};
+
+/**
+ * Every questionnaire the firm has out, across all clients.
+ *
+ * The builder answers "what do we ask"; this answers "who owes us what", which
+ * is the question somebody actually opens this screen with.
+ */
+export async function listAllIntakes(): Promise<IntakeOverview[]> {
+  const { data, error } = await supabase
+    .from("client_intakes")
+    .select(
+      "id, token, status, expires_at, opened_at, submitted_at, created_at, client:clients(id, name), form:intake_forms(id, name)",
+    )
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) throw new Error(describeDbError(error));
+
+  const one = <T,>(v: unknown): T | null =>
+    Array.isArray(v) ? ((v[0] as T) ?? null) : ((v as T) ?? null);
+
+  return (data ?? []).map((row) => ({
+    ...(row as unknown as IntakeOverview),
+    client: one((row as Record<string, unknown>).client),
+    form: one((row as Record<string, unknown>).form),
+  }));
+}
+
 export type ArrivedIntake = {
   id: string;
   submitted_at: string;

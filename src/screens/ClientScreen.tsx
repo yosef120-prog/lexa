@@ -22,12 +22,12 @@ export function ClientScreen({
   clientId,
   onBack,
   onOpenMatter,
-  onOpenFirm,
+  onOpenIntakes,
 }: {
   clientId: string;
   onBack: () => void;
   onOpenMatter: (id: string) => void;
-  onOpenFirm: () => void;
+  onOpenIntakes: () => void;
 }) {
   const { membership } = useAuth();
   const [client, setClient] = useState<Client | null>(null);
@@ -111,7 +111,7 @@ export function ClientScreen({
             clientId={clientId}
             intakes={intakes}
             onChanged={reload}
-            onEditForms={onOpenFirm}
+            onEditForms={onOpenIntakes}
           />
           <ClientDocuments
             orgId={membership?.org_id ?? ""}

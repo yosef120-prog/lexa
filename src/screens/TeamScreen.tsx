@@ -15,7 +15,6 @@ import {
 import { count } from "@/lib/hebrew";
 import { ExportPanel } from "@/components/export-panel";
 import { MfaPanel } from "@/components/mfa-panel";
-import { IntakeBuilder } from "@/components/intake-builder";
 import { Dashboard } from "@/components/dashboard";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
@@ -128,8 +127,6 @@ export function TeamScreen({
           </Card>
         </div>
       )}
-
-      <IntakeBuilder />
 
       <MfaPanel />
 
