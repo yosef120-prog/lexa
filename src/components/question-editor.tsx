@@ -134,13 +134,19 @@ export function QuestionEditor({
       {draft.type === "consent" && (
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-semibold">נוסח ההצהרה</span>
+          {/* Fourteen rows, not five. What goes in here is a power of attorney
+              or a fee agreement — text somebody has to read whole while
+              editing it, and five rows turns that into scrolling a keyhole. */}
           <textarea
-            rows={5}
+            rows={14}
             value={draft.body}
             onChange={(e) => set("body", e.target.value)}
             placeholder="הטקסט שהלקוח מאשר"
-            className={`${box} resize-y`}
+            className={`${box} resize-y font-normal leading-relaxed`}
           />
+          <span className="text-xs text-muted">
+            שורה ריקה מפרידה בין פסקאות, בדיוק כפי שזה ייראה ללקוח.
+          </span>
         </label>
       )}
 
