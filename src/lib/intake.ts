@@ -461,9 +461,11 @@ export function answerText(question: IntakeQuestion, answer: IntakeAnswer | unde
       // count of zero and "does not apply to me" mean very different things.
       if (answer.status === "later") return "אין לו כרגע — ישלח בהמשך";
       if (answer.status === "not_applicable") return "לא רלוונטי";
-      return Array.isArray(answer.value_json) && answer.value_json.length > 0
-        ? `${(answer.value_json as unknown[]).length} קבצים`
-        : "—";
+      if (!Array.isArray(answer.value_json) || answer.value_json.length === 0) return "—";
+      // "1 קבצים" is not Hebrew.
+      return answer.value_json.length === 1
+        ? "קובץ אחד"
+        : `${answer.value_json.length} קבצים`;
     default:
       return answer.value_text || "—";
   }
