@@ -34,7 +34,10 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
   const [fileStatus, setFileStatus] = useState<Record<string, FileStatus>>({});
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
-  const [stillOwed, setStillOwed] = useState(false);
+  // Named, not counted. "Some documents are missing" asks the client to
+  // reconstruct which ones from memory, days later, which is the one thing
+  // they cannot do.
+  const [stillOwed, setStillOwed] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   // A problem belonging to one question rather than to the form. Kept apart
   // because the two want to be read in different places: a refused file is
@@ -75,11 +78,32 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
         {/* Truthful about what happens next. Somebody who said "I will send it
             later" has something left to do, and telling them otherwise is how
             it never arrives. */}
-        <p className="text-sm text-ink-soft">
-          {stillOwed
-            ? `מה ששלחת הגיע ל${intake.org_name}. כשהמסמכים החסרים יהיו אצלך — פתח שוב את אותו קישור והעלה רק אותם.`
-            : `התשובות והמסמכים הגיעו ל${intake.org_name}. אין צורך לעשות שום דבר נוסף.`}
-        </p>
+        {stillOwed.length === 0 ? (
+          <p className="text-sm text-ink-soft">
+            התשובות והמסמכים הגיעו ל{intake.org_name}. אין צורך לעשות שום דבר נוסף.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm text-ink-soft">מה ששלחת הגיע ל{intake.org_name}.</p>
+
+            {/* Written down for them, because this screen is the last time
+                they see the list. Asking somebody to remember which two of
+                six documents they still owe is how the two never arrive. */}
+            <div className="rounded-md bg-brand/10 p-3 text-start">
+              <p className="text-sm font-semibold">נשאר לשלוח:</p>
+              <ul className="mt-1 list-inside list-disc text-sm">
+                {stillOwed.map((label) => (
+                  <li key={label}>{label}</li>
+                ))}
+              </ul>
+            </div>
+
+            <p className="text-sm text-ink-soft">
+              כשיהיו אצלך — פתח את אותו קישור. הוא ייפתח ישירות על מה שחסר בלבד, בלי למלא שום דבר
+              מחדש.
+            </p>
+          </>
+        )}
       </Frame>
     );
   }
@@ -138,7 +162,13 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
         }
       });
       await submitIntake(token, payload);
-      setStillOwed(payload.some((a) => a.status === "later"));
+
+      // The same rule the database uses to keep the form open, so the screen
+      // cannot promise it is finished while the token says otherwise.
+      const owed = new Set(
+        payload.filter((a) => a.status === "later").map((a) => a.question_id),
+      );
+      setStillOwed(asked.filter((q) => owed.has(q.id)).map((q) => q.label));
       setDone(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
