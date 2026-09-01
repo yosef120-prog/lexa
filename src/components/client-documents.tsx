@@ -113,7 +113,13 @@ function DocRow({ group, onChanged }: { group: DocumentGroup; onChanged: () => v
       </div>
       <span className="text-xs text-muted">
         {new Date(latest.created_at).toLocaleDateString("he-IL")}
-        {latest.uploader && ` · ${latest.uploader.full_name || latest.uploader.email}`}
+        {/* Where it came from, which is not the same question as who is in the
+            room. A file the client sent through the link has no member behind
+            it, and saying so is the difference between a record of what the
+            client produced and a blank. */}
+        {latest.intake_id
+          ? " · נשלח על ידי הלקוח בשאלון"
+          : latest.uploader && ` · ${latest.uploader.full_name || latest.uploader.email}`}
         {older.length > 0 && ` · ${older.length} גרסאות קודמות`}
       </span>
       {error && <ErrorNote>{error}</ErrorNote>}

@@ -1705,6 +1705,34 @@ check("in the bucket an outsider could write to", arrived.bucket, "intake-upload
 check("belonging to the client", arrived.client_id, clientA);
 check("and to no matter", arrived.matter_id, null);
 
+// Who the card says produced the document.
+//
+// uploaded_by defaults to auth.uid(), and a firm testing its own form is
+// signed in while filling it — so the default would put a lawyer's name on a
+// document the client supplied. On a client card that is not a cosmetic slip:
+// it is a record of who produced evidence, and nobody would think to doubt it.
+const memberFilled = await asUser(UID_A, async () => {
+  const token = (await db.query(`
+    insert into public.client_intakes (org_id, client_id, form_id)
+    values ('${orgA}', '${clientA}', '${intakeForm}') returning token
+  `)).rows[0].token;
+
+  await db.query(`
+    select public.submit_intake('${token}',
+      ('[{"question_id": "${fileQuestion}", "json": [{"path": "${token}/xyz",
+         "filename": "חוזה.pdf", "mime": "application/pdf", "size": 2048}]}]')::jsonb)
+  `);
+
+  return (await db.query(`
+    select filename, uploaded_by, intake_id
+    from public.documents where storage_path = '${token}/xyz'
+  `)).rows[0];
+});
+check("a document sent through the link is recorded", memberFilled.filename, "חוזה.pdf");
+check("credited to no member, even when a member was signed in", memberFilled.uploaded_by, null);
+// What the screen reads to say the client sent it, instead of showing a blank.
+check("and still traceable to the questionnaire", memberFilled.intake_id !== null, true);
+
 // The browser refuses a wrong file type before uploading it, so the client on
 // a phone is not made to push a video over cellular data to be told no at the
 // end. That copy is only safe while it matches the bucket exactly: a type the

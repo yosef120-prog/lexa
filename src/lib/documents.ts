@@ -17,6 +17,8 @@ export type DocumentRow = {
   version_no: number;
   scan_status: string;
   created_at: string;
+  /** Set when the file arrived through a questionnaire rather than from a member. */
+  intake_id: string | null;
   uploader: { full_name: string | null; email: string | null } | null;
 };
 
@@ -57,7 +59,7 @@ async function readDocuments(narrow: (q: DocQuery) => DocQuery): Promise<Documen
     supabase
       .from("documents")
       .select(
-        "id, storage_path, filename, mime, size_bytes, version_group_id, version_no, scan_status, created_at, uploader:profiles!documents_uploaded_by_fkey(full_name, email)",
+        "id, storage_path, filename, mime, size_bytes, version_group_id, version_no, scan_status, created_at, intake_id, uploader:profiles!documents_uploaded_by_fkey(full_name, email)",
       ),
   ).order("version_no", { ascending: false });
   if (error) throw new Error(describeDbError(error));
