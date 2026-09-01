@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { listClients, softDeleteClient, type Client } from "@/lib/clients";
+import { listClients, softDeleteClient, updateClient, type Client } from "@/lib/clients";
 import { listMatters, STATUS_LABEL, type Matter } from "@/lib/matters";
 import { listClientDocuments, type DocumentGroup } from "@/lib/documents";
 import { listClientIntakes, type ClientIntake } from "@/lib/intake";
 import { IntakePanel } from "@/components/intake-panel";
 import { ClientDocuments } from "@/components/client-documents";
 import { DeleteButton } from "@/components/delete-button";
-import { Button, Card, ErrorNote } from "@/components/ui";
+import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
 /**
  * The client card.
@@ -35,6 +35,7 @@ export function ClientScreen({
   const [documents, setDocuments] = useState<DocumentGroup[]>([]);
   const [intakes, setIntakes] = useState<ClientIntake[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -74,35 +75,45 @@ export function ClientScreen({
         ← כל הלקוחות
       </Button>
 
-      <Card className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h1 className="text-2xl font-bold">{client.name}</h1>
-          <span className="rounded-full bg-ground px-2.5 py-1 text-xs font-semibold text-ink-soft">
-            {client.kind === "company" ? "חברה" : "אדם פרטי"}
-          </span>
-        </div>
-        <dl className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-          <Fact label={client.kind === "company" ? "ח.פ." : "ת.ז."} value={client.national_id} ltr />
-          <Fact label="טלפון" value={client.phone} ltr />
-          <Fact label="אימייל" value={client.email} ltr />
-        </dl>
-
-        <div className="border-t border-rule pt-3">
-          <DeleteButton
-            label="מחק לקוח"
-            what={client.name}
-            consequence={
-              matters.length > 0
-                ? `הלקוח יירד מהרשימה. ${matters.length} התיקים שלו, המסמכים והחיובים נשארים כפי שהם.`
-                : "הלקוח יירד מהרשימה. המסמכים והרישומים שלו נשארים כפי שהם."
-            }
-            onDelete={async () => {
-              await softDeleteClient(clientId);
-              onBack();
+      {editing ? (
+        <Card>
+          <ClientForm
+            client={client}
+            matterCount={matters.length}
+            onSaved={async () => {
+              setEditing(false);
+              await reload();
             }}
+            onDeleted={onBack}
+            onCancel={() => setEditing(false)}
           />
-        </div>
-      </Card>
+        </Card>
+      ) : (
+        <Card className="flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h1 className="text-2xl font-bold">{client.name}</h1>
+              <span className="rounded-full bg-ground px-2.5 py-1 text-xs font-semibold text-ink-soft">
+                {client.kind === "company" ? "חברה" : "אדם פרטי"}
+              </span>
+            </div>
+            {/* Editing is the ordinary reason to touch this card, so it is the
+                one control here. Deleting lives inside it, two steps away
+                rather than beside the phone number. */}
+            <button
+              onClick={() => setEditing(true)}
+              className="shrink-0 rounded px-2 py-1 text-sm font-semibold text-brand hover:bg-brand/10"
+            >
+              ערוך
+            </button>
+          </div>
+          <dl className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+            <Fact label={client.kind === "company" ? "ח.פ." : "ת.ז."} value={client.national_id} ltr />
+            <Fact label="טלפון" value={client.phone} ltr />
+            <Fact label="אימייל" value={client.email} ltr />
+          </dl>
+        </Card>
+      )}
 
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[1fr_22rem]">
         <section className="flex flex-col gap-5">
@@ -150,6 +161,122 @@ export function ClientScreen({
         </aside>
       </div>
     </div>
+  );
+}
+
+/**
+ * Correcting a client, and — at the bottom, behind its own confirmation —
+ * removing one.
+ *
+ * Deleting used to sit on the card itself, one tap from the phone number
+ * somebody came to check. It is a rare act with no undo in the interface, so
+ * it belongs at the end of the screen you open on purpose.
+ */
+function ClientForm({
+  client,
+  matterCount,
+  onSaved,
+  onDeleted,
+  onCancel,
+}: {
+  client: Client;
+  matterCount: number;
+  onSaved: () => Promise<void>;
+  onDeleted: () => void;
+  onCancel: () => void;
+}) {
+  const [kind, setKind] = useState(client.kind);
+  const [name, setName] = useState(client.name);
+  const [nationalId, setNationalId] = useState(client.national_id ?? "");
+  const [phone, setPhone] = useState(client.phone ?? "");
+  const [email, setEmail] = useState(client.email ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await updateClient(client.id, { kind, name, national_id: nationalId, phone, email });
+      await onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-4">
+      <h2 className="text-lg font-bold">עריכת לקוח</h2>
+
+      <div className="flex gap-2">
+        {(["individual", "company"] as const).map((k) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setKind(k)}
+            className={`rounded-md px-3 py-1.5 text-sm font-semibold ${
+              kind === k ? "bg-brand text-white" : "bg-ground text-ink-soft"
+            }`}
+          >
+            {k === "individual" ? "אדם פרטי" : "חברה"}
+          </button>
+        ))}
+      </div>
+
+      <Field label="שם" value={name} onChange={(e) => setName(e.target.value)} required />
+      <Field
+        label={kind === "individual" ? "תעודת זהות" : "ח.פ."}
+        value={nationalId}
+        onChange={(e) => setNationalId(e.target.value)}
+        dir="ltr"
+        hint="משמש לבדיקות ניגוד עניינים, אז שווה שיהיה מדויק."
+      />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Field
+          label="טלפון"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          dir="ltr"
+          hint="לשליחת שאלון בוואטסאפ."
+        />
+        <Field
+          label="אימייל"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          dir="ltr"
+        />
+      </div>
+
+      {error && <ErrorNote>{error}</ErrorNote>}
+
+      <div className="flex gap-2">
+        <Button type="submit" disabled={busy || !name.trim()}>
+          {busy ? "שומר..." : "שמור"}
+        </Button>
+        <Button type="button" variant="ghost" onClick={onCancel}>
+          ביטול
+        </Button>
+      </div>
+
+      <div className="border-t border-rule pt-4">
+        <DeleteButton
+          label="מחק לקוח"
+          what={client.name}
+          consequence={
+            matterCount > 0
+              ? `הלקוח יירד מהרשימה. ${matterCount} התיקים שלו, המסמכים והחיובים נשארים כפי שהם.`
+              : "הלקוח יירד מהרשימה. המסמכים והרישומים שלו נשארים כפי שהם."
+          }
+          onDelete={async () => {
+            await softDeleteClient(client.id);
+            onDeleted();
+          }}
+        />
+      </div>
+    </form>
   );
 }
 

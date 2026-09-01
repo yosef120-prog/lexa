@@ -73,6 +73,37 @@ export async function createClient(input: {
   if (error) throw new Error(describeDbError(error));
 }
 
+/**
+ * Correcting a client's details.
+ *
+ * The national id is generated-column backed for conflict checks, so changing
+ * it changes what future checks match on — which is the point: a typo in an
+ * id is exactly the kind of thing that makes a conflict check quietly useless.
+ */
+export async function updateClient(
+  id: string,
+  patch: {
+    kind: "individual" | "company";
+    name: string;
+    national_id: string;
+    phone: string;
+    email: string;
+  },
+): Promise<void> {
+  const { error } = await supabase
+    .from("clients")
+    .update({
+      kind: patch.kind,
+      name: patch.name.trim(),
+      national_id: patch.national_id.trim() || null,
+      phone: patch.phone.trim() || null,
+      email: patch.email.trim() || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) throw new Error(describeDbError(error));
+}
+
 const DELETE_TROUBLE: Record<string, string> = {
   NOT_FOUND: "הלקוח כבר נמחק.",
   FORBIDDEN: "רק בעלים או עורך דין יכולים למחוק לקוח.",
