@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   answerText,
   INTAKE_STATUS_LABEL,
@@ -289,6 +289,20 @@ function IntakeRow({ intake, onChanged }: { intake: ClientIntake; onChanged: () 
     }
   }, [intake]);
 
+  // A questionnaire waiting on documents says which ones without being asked.
+  // The badge alone tells the firm there is a problem and nothing about it,
+  // and the answer was one press away behind a control nobody knew was there.
+  const asked = useRef(false);
+  useEffect(() => {
+    if (intake.status !== "partial" || asked.current) return;
+    asked.current = true;
+    void load();
+  }, [intake.status, load]);
+
+  const outstanding = (questions ?? [])
+    .filter((q) => answers.find((a) => a.question_id === q.id)?.status === "later")
+    .map((q) => q.label);
+
   async function toggle() {
     const next = !open;
     setOpen(next);
@@ -309,29 +323,21 @@ function IntakeRow({ intake, onChanged }: { intake: ClientIntake; onChanged: () 
 
   return (
     <li className="flex flex-col gap-2 py-2.5">
-      <div className="flex items-center justify-between gap-3">
-        {/* The answers were always behind this row. Nothing said so — a name
-            in bold is not a control, and a firm looking for what its client
-            wrote had no reason to press it. The arrow and the word are the
-            whole fix. */}
-        <button
-          onClick={toggle}
-          aria-expanded={open}
-          className="flex min-w-0 flex-1 items-baseline gap-2 text-start"
-        >
-          <span
-            className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold ${STATUS_LOOK[intake.status]}`}
-          >
-            {INTAKE_STATUS_LABEL[intake.status]}
-          </span>
-          <span className="truncate text-sm font-semibold">{intake.form?.name ?? "שאלון"}</span>
-          <span className="shrink-0 text-xs font-semibold text-brand">
-            <span aria-hidden className="inline-block px-1">
-              {open ? "▾" : "◂"}
+      {/* The name gets the line. Badge, name, toggle and two actions all on
+          one row left a phone showing "שאלון..." — the questionnaire's name,
+          which is the one thing identifying the row, was the part that got
+          cut. The controls moved below it. */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="flex items-baseline gap-2">
+            <span
+              className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold ${STATUS_LOOK[intake.status]}`}
+            >
+              {INTAKE_STATUS_LABEL[intake.status]}
             </span>
-            {open ? "הסתר תשובות" : "הצג תשובות"}
+            <span className="text-sm font-semibold">{intake.form?.name ?? "שאלון"}</span>
           </span>
-        </button>
+        </div>
 
         <div className="flex shrink-0 gap-1">
           {live && (
@@ -363,6 +369,39 @@ function IntakeRow({ intake, onChanged }: { intake: ClientIntake; onChanged: () 
         {intake.submitted_at && ` · הוגש ${new Date(intake.submitted_at).toLocaleDateString("he-IL")}`}
         {live && ` · ${daysLeft > 0 ? `תקף עוד ${daysLeft} ימים` : "פג"}`}
       </span>
+
+      {/* The whole reason the badge says "חסרים מסמכים". Shown without being
+          asked, because a firm reading that badge is already asking which — and
+          chasing a document means saying its name down a phone. */}
+      {intake.status === "partial" && outstanding.length > 0 && (
+        <div className="rounded-md bg-warning/10 p-2.5">
+          <p className="text-xs font-semibold text-ink-soft">
+            {outstanding.length === 1 ? "מסמך שהלקוח עוד לא שלח:" : "מסמכים שהלקוח עוד לא שלח:"}
+          </p>
+          <ul className="mt-1 flex flex-col gap-0.5">
+            {outstanding.map((label) => (
+              <li key={label} className="text-sm">
+                <span aria-hidden className="text-warning">
+                  •{" "}
+                </span>
+                {label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Its own line and its own width, so it survives a phone. */}
+      <button
+        onClick={toggle}
+        aria-expanded={open}
+        className="self-start rounded px-1 py-0.5 text-xs font-semibold text-brand hover:bg-brand/10"
+      >
+        <span aria-hidden className="inline-block pl-1">
+          {open ? "▾" : "◂"}
+        </span>
+        {open ? "הסתר תשובות" : "הצג תשובות"}
+      </button>
 
       {showLink && <CopyLink link={intakeLink(intake.token)} />}
       {error && <ErrorNote>{error}</ErrorNote>}

@@ -3,6 +3,7 @@ import {
   INTAKE_STATUS_LABEL,
   intakeLink,
   listAllIntakes,
+  listOutstandingDocuments,
   markIntakeReviewed,
   revokeIntake,
   type IntakeOverview,
@@ -28,12 +29,21 @@ const STATUS_LOOK: Record<IntakeStatus, string> = {
  */
 export function QuestionnairesScreen({ onOpenClient }: { onOpenClient: (id: string) => void }) {
   const [intakes, setIntakes] = useState<IntakeOverview[]>([]);
+  // Which documents each partial questionnaire is still waiting on. Fetched
+  // once for the whole screen rather than per row: "חסרים מסמכים" without
+  // saying which is the state this screen exists to resolve.
+  const [owed, setOwed] = useState<Map<string, string[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      setIntakes(await listAllIntakes());
+      const [all, outstanding] = await Promise.all([
+        listAllIntakes(),
+        listOutstandingDocuments(),
+      ]);
+      setIntakes(all);
+      setOwed(new Map(outstanding.map((o) => [o.id, o.documents])));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -94,7 +104,13 @@ export function QuestionnairesScreen({ onOpenClient }: { onOpenClient: (id: stri
           <Card className="p-0">
             <ul className="flex flex-col divide-y divide-rule">
               {g.rows.map((i) => (
-                <Row key={i.id} intake={i} onOpenClient={onOpenClient} onChanged={reload} />
+                <Row
+                  key={i.id}
+                  intake={i}
+                  documents={owed.get(i.id) ?? []}
+                  onOpenClient={onOpenClient}
+                  onChanged={reload}
+                />
               ))}
             </ul>
           </Card>
@@ -108,10 +124,13 @@ export function QuestionnairesScreen({ onOpenClient }: { onOpenClient: (id: stri
 
 function Row({
   intake,
+  documents,
   onOpenClient,
   onChanged,
 }: {
   intake: IntakeOverview;
+  /** What this questionnaire is still waiting on, if anything. */
+  documents: string[];
   onOpenClient: (id: string) => void;
   onChanged: () => Promise<void>;
 }) {
@@ -192,6 +211,24 @@ function Row({
           ` · הוגש ${new Date(intake.submitted_at).toLocaleDateString("he-IL")}`}
         {live && ` · ${daysLeft > 0 ? `תקף עוד ${daysLeft} ימים` : "פג"}`}
       </span>
+
+      {intake.status === "partial" && documents.length > 0 && (
+        <div className="rounded-md bg-warning/10 p-2.5">
+          <p className="text-xs font-semibold text-ink-soft">
+            {documents.length === 1 ? "מסמך שעוד לא הגיע:" : "מסמכים שעוד לא הגיעו:"}
+          </p>
+          <ul className="mt-1 flex flex-col gap-0.5">
+            {documents.map((label) => (
+              <li key={label} className="text-sm">
+                <span aria-hidden className="text-warning">
+                  •{" "}
+                </span>
+                {label}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {intake.status === "partial" && (
         <span className="text-xs text-ink-soft">
