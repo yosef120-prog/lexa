@@ -19,6 +19,8 @@ export type DocumentRow = {
   created_at: string;
   /** Set when the file arrived through a questionnaire rather than from a member. */
   intake_id: string | null;
+  /** Which bucket actually holds the bytes. Intake files are not in the firm's. */
+  bucket: string;
   uploader: { full_name: string | null; email: string | null } | null;
 };
 
@@ -59,7 +61,7 @@ async function readDocuments(narrow: (q: DocQuery) => DocQuery): Promise<Documen
     supabase
       .from("documents")
       .select(
-        "id, storage_path, filename, mime, size_bytes, version_group_id, version_no, scan_status, created_at, intake_id, uploader:profiles!documents_uploaded_by_fkey(full_name, email)",
+        "id, storage_path, filename, mime, size_bytes, version_group_id, version_no, scan_status, created_at, intake_id, bucket, uploader:profiles!documents_uploaded_by_fkey(full_name, email)",
       ),
   ).order("version_no", { ascending: false });
   if (error) throw new Error(describeDbError(error));
@@ -149,11 +151,28 @@ export async function uploadDocument(input: {
  * URL in a chat window is already dead.
  */
 export async function getDownloadUrl(doc: DocumentRow): Promise<string> {
+  // The row says where its bytes are. Assuming the firm's own bucket here
+  // asked storage for a path that only exists in intake-uploads, so every
+  // document a client had sent refused to open — and said so in the words of
+  // a failed upload, which is the one thing that had not happened.
   const { data, error } = await supabase.storage
-    .from(BUCKET)
+    .from(doc.bucket || BUCKET)
     .createSignedUrl(doc.storage_path, 60, { download: doc.filename });
-  if (error) throw new Error(translateStorageError(error.message));
+  if (error) throw new Error(describeDownloadFailure(error.message));
   return data.signedUrl;
+}
+
+/** Reading a file, which fails for different reasons than writing one. */
+function describeDownloadFailure(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes("not found") || m.includes("does not exist")) {
+    return "הקובץ לא נמצא באחסון. ייתכן שנמחק.";
+  }
+  if (m.includes("row-level security") || m.includes("unauthorized")) {
+    return "אין לך הרשאה לפתוח את הקובץ הזה.";
+  }
+  console.error("download error", message);
+  return "לא הצלחנו לפתוח את הקובץ. נסה שוב.";
 }
 
 function translateStorageError(message: string): string {

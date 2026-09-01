@@ -310,13 +310,27 @@ function IntakeRow({ intake, onChanged }: { intake: ClientIntake; onChanged: () 
   return (
     <li className="flex flex-col gap-2 py-2.5">
       <div className="flex items-center justify-between gap-3">
-        <button onClick={toggle} className="flex min-w-0 flex-1 items-baseline gap-2 text-start">
+        {/* The answers were always behind this row. Nothing said so — a name
+            in bold is not a control, and a firm looking for what its client
+            wrote had no reason to press it. The arrow and the word are the
+            whole fix. */}
+        <button
+          onClick={toggle}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-baseline gap-2 text-start"
+        >
           <span
             className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-semibold ${STATUS_LOOK[intake.status]}`}
           >
             {INTAKE_STATUS_LABEL[intake.status]}
           </span>
           <span className="truncate text-sm font-semibold">{intake.form?.name ?? "שאלון"}</span>
+          <span className="shrink-0 text-xs font-semibold text-brand">
+            <span aria-hidden className="inline-block px-1">
+              {open ? "▾" : "◂"}
+            </span>
+            {open ? "הסתר תשובות" : "הצג תשובות"}
+          </span>
         </button>
 
         <div className="flex shrink-0 gap-1">
@@ -357,6 +371,14 @@ function IntakeRow({ intake, onChanged }: { intake: ClientIntake; onChanged: () 
         <div className="rounded-md bg-ground p-3 text-sm">
           {questions === null ? (
             <span className="text-muted">טוען...</span>
+          ) : intake.status === "partial" ? (
+            // Said apart from the other two, because it is a different fact. A
+            // partial questionnaire has real answers in it; calling it "not
+            // submitted yet" would send the firm away from a card it can
+            // already act on.
+            <span className="text-ink-soft">
+              הלקוח ענה ושלח. חסרים עוד מסמכים שסימן שישלח בהמשך — אלה התשובות שהתקבלו:
+            </span>
           ) : intake.status !== "submitted" ? (
             <span className="text-ink-soft">עוד לא הוגש. אלה השאלות שנשלחו:</span>
           ) : null}
@@ -372,7 +394,10 @@ function IntakeRow({ intake, onChanged }: { intake: ClientIntake; onChanged: () 
             ))}
           </dl>
 
-          {intake.status === "submitted" && (
+          {/* True the moment the first file arrives, which is before the form
+              is finished. Withholding it until then hid the documents a
+              partial questionnaire had already delivered. */}
+          {(intake.status === "submitted" || intake.status === "partial") && (
             <p className="mt-2 border-t border-rule pt-2 text-xs text-muted">
               הקבצים שצורפו נמצאים ברשימת מסמכי הלקוח.
             </p>
