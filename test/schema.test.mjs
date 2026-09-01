@@ -1916,12 +1916,14 @@ try {
 }
 check("but with a second owner it is allowed", secondOwnerDemote, "ok");
 
-// Put the firm back the way the rest of the suite expects it.
+// Put the firm back the way the rest of the suite expects it. Demoted rather
+// than deleted: this colleague was a member before this check borrowed them,
+// and removing the row instead cost a later test its subject.
 await db.exec(`
   update public.org_members set role = 'owner'
   where org_id = '${orgA}' and user_id = '${UID_A}';
-  delete from public.org_members
-  where org_id = '${orgA}' and user_id = '${UID_DIARY_INTERN}' and role = 'owner';
+  update public.org_members set role = 'intern'
+  where org_id = '${orgA}' and user_id = '${UID_DIARY_INTERN}';
 `);
 
 
@@ -1968,13 +1970,35 @@ check("connecting is recorded", audited !== undefined, true);
 check("without the token in the record", audited?.after?.api_token, undefined);
 check("and with the rest of it", audited?.after?.instance_id, "1101");
 
-// A colleague who is not an owner sees nothing at all here.
+// A colleague can see that the firm is connected, because they are the ones
+// sending. Restricting this to owners meant the secretary's app concluded the
+// firm had no connection and fell back to opening WhatsApp by hand — the exact
+// work the connection removes, for the person doing most of it.
 let colleagueSees = 0;
 await asUser(UID_DIARY_INTERN, async () => {
-  const r = await db.query(`select id from public.whatsapp_connections`);
+  const r = await db.query(`select instance_id from public.whatsapp_connections`);
   colleagueSees = r.rows.length;
 });
-check("and an intern cannot see the connection exists", colleagueSees, 0);
+check("a colleague can see the firm is connected", colleagueSees, 1);
+
+// And still cannot read the secret. The protection was never the row policy.
+let colleagueToken = "";
+try {
+  await asUser(UID_DIARY_INTERN, async () => {
+    await db.query(`select api_token from public.whatsapp_connections`);
+  });
+} catch (e) {
+  colleagueToken = e.message;
+}
+check("but not the token", colleagueToken.includes("permission denied"), true);
+
+// Another firm sees nothing at all, which is the line that matters.
+let otherFirmSees = 0;
+await asUser(UID_B, async () => {
+  const r = await db.query(`select id from public.whatsapp_connections`);
+  otherFirmSees = r.rows.length;
+});
+check("and another firm sees no connection at all", otherFirmSees, 0);
 
 
 // ---------------------------------------------------------------- embeds

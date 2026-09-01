@@ -244,7 +244,24 @@ function DirectSend({ orgId, to, message }: { orgId: string; to: string; message
       {state === "sent" && (
         <span className="text-xs text-muted">ההודעה יצאה מהמספר של המשרד.</span>
       )}
-      {error && <ErrorNote>{error}</ErrorNote>}
+
+      {error && (
+        <>
+          <ErrorNote>{error}</ErrorNote>
+          {/* The way that always works, offered exactly when the other one
+              stopped. A gateway that is down must not take the client's link
+              down with it — the message still has to reach them today. */}
+          <a
+            href={whatsAppLink(toWhatsAppNumber(to), message)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center rounded-md border border-rule
+                       px-4 py-2.5 text-sm font-semibold text-ink-soft hover:bg-ground"
+          >
+            פתח וואטסאפ ושלח ידנית
+          </a>
+        </>
+      )}
     </div>
   );
 }
