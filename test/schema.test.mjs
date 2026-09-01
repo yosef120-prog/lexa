@@ -1461,7 +1461,31 @@ check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "profiles", privs: "SELECT,UPDATE" },
   { table_name: "tasks", privs: "INSERT,SELECT,UPDATE" },
   { table_name: "time_entries", privs: "INSERT,SELECT,UPDATE" },
+  // Only DELETE here, and that is the design. Select, insert and update on
+  // this table are granted per column so the gateway token can be written and
+  // never read, and column grants do not show up in this view at all.
+  { table_name: "whatsapp_connections", privs: "DELETE" },
 ]);
+
+// Which makes the column list the thing actually worth asserting: every column
+// but the token is readable, and adding one to the table does not quietly add
+// it here.
+const gatewayColumns = await db.query(`
+  select column_name
+  from information_schema.role_column_grants
+  where grantee = 'authenticated'
+    and table_name = 'whatsapp_connections'
+    and privilege_type = 'SELECT'
+  order by column_name
+`);
+check(
+  "the token is the one column authenticated cannot select",
+  gatewayColumns.rows.map((r) => r.column_name),
+  [
+    "created_at", "created_by", "id", "instance_id", "last_error",
+    "last_error_at", "last_ok_at", "org_id", "phone", "provider", "updated_at",
+  ],
+);
 
 // ---------------------------------------------------------------- intake
 //
@@ -1899,6 +1923,58 @@ await db.exec(`
   delete from public.org_members
   where org_id = '${orgA}' and user_id = '${UID_DIARY_INTERN}' and role = 'owner';
 `);
+
+
+// The gateway token is full control of the firm's WhatsApp, so the whole
+// design is that the application can write it and never read it back.
+await asUser(UID_A, async () => {
+  await db.query(`
+    insert into public.whatsapp_connections (org_id, instance_id, api_token, phone)
+    values ('${orgA}', '1101', 'secret-token', '972500000000')
+  `);
+});
+
+let readToken = "";
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`select api_token from public.whatsapp_connections`);
+  });
+} catch (e) {
+  readToken = e.message;
+}
+check("even an owner cannot read the token back", readToken.includes("permission denied"), true);
+
+// select * has to fail too, or the protection is one careless query away.
+let readAll = "";
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`select * from public.whatsapp_connections`);
+  });
+} catch (e) {
+  readAll = e.message;
+}
+check("and select * is refused rather than quietly including it", readAll.includes("permission denied"), true);
+
+check("but everything else about the connection reads", await asUser(UID_A, async () =>
+  (await db.query(`select instance_id from public.whatsapp_connections`)).rows[0].instance_id,
+), "1101");
+
+// The audit trail is readable by every member of the firm, so a token written
+// into it would walk straight past the column privileges.
+const audited = (await db.query(`
+  select after from public.audit_log where entity = 'whatsapp_connections' limit 1
+`)).rows[0];
+check("connecting is recorded", audited !== undefined, true);
+check("without the token in the record", audited?.after?.api_token, undefined);
+check("and with the rest of it", audited?.after?.instance_id, "1101");
+
+// A colleague who is not an owner sees nothing at all here.
+let colleagueSees = 0;
+await asUser(UID_DIARY_INTERN, async () => {
+  const r = await db.query(`select id from public.whatsapp_connections`);
+  colleagueSees = r.rows.length;
+});
+check("and an intern cannot see the connection exists", colleagueSees, 0);
 
 
 // ---------------------------------------------------------------- embeds

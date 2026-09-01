@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { buildFiling, PART_LIMIT_BYTES } from "./build.js";
 import { createRest, verifyToken } from "./supabase-rest.js";
+import { sendMessage, toChatId } from "./whatsapp.js";
 
 const PORT = process.env.PORT || 8080;
 const BUCKET = "matter-documents";
@@ -173,7 +174,10 @@ createServer(async (req, res) => {
     });
   }
 
-  if (req.method !== "POST" || !req.url.startsWith("/build")) {
+  const isBuild = req.method === "POST" && req.url.startsWith("/build");
+  const isWhatsApp = req.method === "POST" && req.url.startsWith("/whatsapp/send");
+
+  if (!isBuild && !isWhatsApp) {
     return send(404, { error: "Not found" });
   }
 
@@ -188,6 +192,8 @@ createServer(async (req, res) => {
 
   let payload = "";
   for await (const chunk of req) payload += chunk;
+
+  if (isWhatsApp) return whatsapp({ send, userId, payload });
 
   let bundleId;
   try {
@@ -213,6 +219,75 @@ createServer(async (req, res) => {
   } catch (error) {
     console.error("render failed", error);
     return send(500, { error: error.message });
+  }
+  /**
+   * Sending one message from the firm's connected WhatsApp.
+   *
+   * The caller says who and what; the credentials are looked up here from the
+   * membership, never sent. Somebody who forges a request can at most make
+   * their own firm send a message, which is what they can already do by
+   * clicking the button.
+   */
+  async function whatsapp({ send, userId, payload }) {
+    let to, message, orgId;
+    try {
+      ({ to, message, orgId } = JSON.parse(payload));
+    } catch {
+      return send(400, { error: "Invalid JSON" });
+    }
+    if (!to || !message || !orgId) {
+      return send(400, { error: "to, message and orgId are required" });
+    }
+
+    const chatId = toChatId(to);
+    if (!chatId) return send(400, { error: "מספר הטלפון אינו תקין." });
+
+    try {
+      // Membership first, so a stranger naming somebody else's firm is refused
+      // before its credentials are so much as read.
+      const membership = await db.selectOne(
+        "org_members",
+        `org_id=eq.${orgId}&user_id=eq.${userId}&status=eq.active&select=user_id`,
+      );
+      if (!membership) return send(403, { error: "Forbidden" });
+
+      const connection = await db.selectOne(
+        "whatsapp_connections",
+        `org_id=eq.${orgId}&select=id,instance_id,api_token`,
+      );
+      if (!connection) {
+        return send(409, { error: "וואטסאפ לא מחובר. חבר אותו בהגדרות המשרד." });
+      }
+
+      const idMessage = await sendMessage({
+        instanceId: connection.instance_id,
+        apiToken: connection.api_token,
+        chatId,
+        message,
+      });
+
+      // Recorded so the settings screen can say whether the connection still
+      // works, rather than only that it was once configured.
+      await db.update("whatsapp_connections", `id=eq.${connection.id}`, {
+        last_ok_at: new Date().toISOString(),
+        last_error: null,
+        last_error_at: null,
+      });
+
+      return send(200, { ok: true, idMessage });
+    } catch (error) {
+      console.error("whatsapp send failed", error.message);
+      try {
+        await db.update("whatsapp_connections", `org_id=eq.${orgId}`, {
+          last_error: error.message,
+          last_error_at: new Date().toISOString(),
+        });
+      } catch {
+        // The send already failed; failing to record why should not change
+        // what the caller is told.
+      }
+      return send(502, { error: error.message });
+    }
   }
 }).listen(PORT, async () => {
   console.log(`filing renderer listening on ${PORT}`);

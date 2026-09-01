@@ -22,6 +22,7 @@ import {
   type OrgRole,
 } from "@/lib/invitations";
 import { MfaPanel } from "@/components/mfa-panel";
+import { WhatsAppPanel } from "@/components/whatsapp-panel";
 import { ExportPanel } from "@/components/export-panel";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
@@ -141,6 +142,12 @@ export function SettingsScreen({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </Section>
+
+      {isOwner && (
+        <Section title="וואטסאפ">
+          <WhatsAppPanel />
+        </Section>
+      )}
 
       <Section title="אבטחה">
         <MfaPanel />

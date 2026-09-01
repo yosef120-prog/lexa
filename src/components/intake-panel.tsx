@@ -15,6 +15,7 @@ import {
 } from "@/lib/intake";
 import { useAuth } from "@/lib/auth";
 import { intakeMessage, toWhatsAppNumber, whatsAppLink } from "@/lib/whatsapp";
+import { getConnection, sendWhatsApp } from "@/lib/whatsapp-gateway";
 import { Button, Card, ErrorNote } from "@/components/ui";
 
 const STATUS_LOOK: Record<ClientIntake["status"], string> = {
@@ -55,6 +56,7 @@ export function IntakePanel({
 }) {
   const { membership } = useAuth();
   const [forms, setForms] = useState<IntakeForm[]>([]);
+  const [connected, setConnected] = useState(false);
   const [sending, setSending] = useState(false);
   const [freshLink, setFreshLink] = useState<{
     url: string;
@@ -67,6 +69,11 @@ export function IntakePanel({
     listForms()
       .then(setForms)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    // Only an owner can see this row, so a lawyer or secretary always gets the
+    // link-opening button — which still works.
+    getConnection()
+      .then((c) => setConnected(Boolean(c)))
+      .catch(() => setConnected(false));
   }, []);
 
   async function send(formId: string) {
@@ -112,6 +119,18 @@ export function IntakePanel({
 
           {/* The whole point: from here to the client's phone in one tap,
               rather than copy, switch app, find contact, paste. */}
+          {connected && toWhatsAppNumber(clientPhone) ? (
+            <DirectSend
+              orgId={orgId}
+              to={clientPhone ?? ""}
+              message={intakeMessage({
+                clientName,
+                firmName: membership?.org_name ?? "",
+                formName: freshLink.formName,
+                link: freshLink.url,
+              })}
+            />
+          ) : (
           <a
             href={whatsAppLink(
               toWhatsAppNumber(clientPhone),
@@ -133,6 +152,7 @@ export function IntakePanel({
             </svg>
             שלח בוואטסאפ
           </a>
+          )}
 
           {!toWhatsAppNumber(clientPhone) && (
             // Said plainly: WhatsApp will still open, it just will not know
@@ -185,6 +205,47 @@ export function IntakePanel({
         </ul>
       )}
     </Card>
+  );
+}
+
+/**
+ * Sending through the firm's connected number, with no app switch.
+ *
+ * Kept beside the link-opening button rather than replacing it everywhere: a
+ * firm without a connection, or a client without a usable number, still gets
+ * the version that always works.
+ */
+function DirectSend({ orgId, to, message }: { orgId: string; to: string; message: string }) {
+  const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <button
+        type="button"
+        disabled={state !== "idle"}
+        onClick={async () => {
+          setState("sending");
+          setError(null);
+          try {
+            await sendWhatsApp({ orgId, to, message });
+            setState("sent");
+          } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+            setState("idle");
+          }
+        }}
+        className="inline-flex items-center justify-center gap-2 rounded-md bg-[#25D366]
+                   px-4 py-2.5 text-sm font-semibold text-white hover:brightness-95
+                   disabled:opacity-70"
+      >
+        {state === "sending" ? "שולח..." : state === "sent" ? "נשלח ללקוח ✓" : "שלח בוואטסאפ"}
+      </button>
+      {state === "sent" && (
+        <span className="text-xs text-muted">ההודעה יצאה מהמספר של המשרד.</span>
+      )}
+      {error && <ErrorNote>{error}</ErrorNote>}
+    </div>
   );
 }
 
