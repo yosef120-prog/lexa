@@ -138,3 +138,98 @@ export async function acceptInvitation(token: string): Promise<void> {
     throw new Error(describeDbError(error));
   }
 }
+
+const MEMBER_TROUBLE: Record<string, string> = {
+  LAST_OWNER: "צריך להישאר בעלים אחד לפחות. מנה בעלים נוסף קודם.",
+};
+
+function explainMember(error: { message: string }): string {
+  const named = Object.keys(MEMBER_TROUBLE).find((k) => error.message.includes(k));
+  return named ? MEMBER_TROUBLE[named] : describeDbError(error as Error);
+}
+
+/** Changing what somebody may do. Owners only, enforced by the policy. */
+export async function setMemberRole(userId: string, role: OrgRole): Promise<void> {
+  const { error } = await supabase
+    .from("org_members")
+    .update({ role })
+    .eq("user_id", userId);
+  if (error) throw new Error(explainMember(error));
+}
+
+/**
+ * Taking somebody out of the firm.
+ *
+ * A real delete, unlike everything else here: a membership is a permission,
+ * not a record of what happened. What they did stays — the audit trail and
+ * every row they created keep their name.
+ */
+export async function removeMember(userId: string): Promise<void> {
+  const { error } = await supabase.from("org_members").delete().eq("user_id", userId);
+  if (error) throw new Error(explainMember(error));
+}
+
+export type Firm = { id: string; name: string; logo_path: string | null };
+
+export async function getFirm(): Promise<Firm | null> {
+  const { data, error } = await supabase
+    .from("organizations")
+    .select("id, name, logo_path")
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(describeDbError(error));
+  return data;
+}
+
+export async function renameFirm(id: string, name: string): Promise<void> {
+  const { error } = await supabase
+    .from("organizations")
+    .update({ name: name.trim() })
+    .eq("id", id);
+  if (error) throw new Error(describeDbError(error));
+}
+
+const LOGO_BUCKET = "firm-logos";
+
+/** The public URL of a logo, or null. Public by design — clients see it. */
+export function logoUrl(path: string | null): string | null {
+  if (!path) return null;
+  return supabase.storage.from(LOGO_BUCKET).getPublicUrl(path).data.publicUrl;
+}
+
+export async function uploadLogo(orgId: string, file: File): Promise<string> {
+  if (file.size > 2 * 1024 * 1024) {
+    throw new Error("הקובץ גדול מ־2 מ״ב. נסה תמונה קטנה יותר.");
+  }
+
+  // A new object each time rather than overwriting: the old URL may still be
+  // sitting in a cache, and a logo that flickers between two firms' marks is
+  // worse than one that takes a moment to appear.
+  const path = `${orgId}/${crypto.randomUUID()}`;
+
+  const { error } = await supabase.storage
+    .from(LOGO_BUCKET)
+    .upload(path, file, { contentType: file.type || undefined });
+  if (error) {
+    if (error.message.toLowerCase().includes("mime")) {
+      throw new Error("אפשר PNG, JPG, WEBP או SVG.");
+    }
+    throw new Error("לא הצלחנו להעלות את הלוגו. נסה שוב.");
+  }
+
+  const { error: saveError } = await supabase
+    .from("organizations")
+    .update({ logo_path: path })
+    .eq("id", orgId);
+  if (saveError) throw new Error(describeDbError(saveError));
+
+  return path;
+}
+
+export async function removeLogo(orgId: string): Promise<void> {
+  const { error } = await supabase
+    .from("organizations")
+    .update({ logo_path: null })
+    .eq("id", orgId);
+  if (error) throw new Error(describeDbError(error));
+}

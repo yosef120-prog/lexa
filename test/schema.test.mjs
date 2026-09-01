@@ -1843,6 +1843,64 @@ check("not applicable closes the form rather than holding it", await asUser(UID_
 ), "submitted");
 
 
+// A firm cannot be left without an owner. The owner policy is FOR ALL, so
+// before this an owner could demote themselves and lock the firm out of its
+// own settings, invitations and billing, with nothing inside the product able
+// to undo it.
+let lastOwnerDemoted = "";
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`
+      update public.org_members set role = 'lawyer'
+      where org_id = '${orgA}' and user_id = '${UID_A}'
+    `);
+  });
+} catch (e) {
+  lastOwnerDemoted = e.message;
+}
+check("the only owner cannot demote themselves", lastOwnerDemoted.includes("LAST_OWNER"), true);
+
+let lastOwnerRemoved = "";
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`
+      delete from public.org_members where org_id = '${orgA}' and user_id = '${UID_A}'
+    `);
+  });
+} catch (e) {
+  lastOwnerRemoved = e.message;
+}
+check("nor remove themselves", lastOwnerRemoved.includes("LAST_OWNER"), true);
+
+// With a second owner in place both become ordinary changes: the rule is
+// about the firm keeping an owner, not about an owner being permanent.
+await db.exec(`
+  insert into public.org_members (org_id, user_id, role, status, joined_at)
+  values ('${orgA}', '${UID_DIARY_INTERN}', 'owner', 'active', now())
+  on conflict (org_id, user_id) do update set role = 'owner'
+`);
+let secondOwnerDemote = "ok";
+try {
+  await asUser(UID_A, async () => {
+    await db.query(`
+      update public.org_members set role = 'lawyer'
+      where org_id = '${orgA}' and user_id = '${UID_A}'
+    `);
+  });
+} catch (e) {
+  secondOwnerDemote = e.message;
+}
+check("but with a second owner it is allowed", secondOwnerDemote, "ok");
+
+// Put the firm back the way the rest of the suite expects it.
+await db.exec(`
+  update public.org_members set role = 'owner'
+  where org_id = '${orgA}' and user_id = '${UID_A}';
+  delete from public.org_members
+  where org_id = '${orgA}' and user_id = '${UID_DIARY_INTERN}' and role = 'owner';
+`);
+
+
 // ---------------------------------------------------------------- embeds
 //
 // PostgREST will not follow a foreign key into the auth schema, so a column

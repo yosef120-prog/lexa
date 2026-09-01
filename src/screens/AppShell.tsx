@@ -1,6 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { Button } from "@/components/ui";
 import { SearchBox } from "@/components/search-box";
 import { ReminderBanner } from "@/components/reminder-banner";
 import { ClientsScreen } from "@/screens/ClientsScreen";
@@ -11,6 +10,8 @@ import { DiaryScreen } from "@/screens/DiaryScreen";
 import { TasksScreen } from "@/screens/TasksScreen";
 import { TeamScreen } from "@/screens/TeamScreen";
 import { QuestionnairesScreen } from "@/screens/QuestionnairesScreen";
+import { SettingsScreen } from "@/screens/SettingsScreen";
+import { getFirm, logoUrl } from "@/lib/invitations";
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "בעלים",
@@ -49,16 +50,27 @@ const TABS: Array<{ id: Tab; label: string }> = [
  * phone — where a thumb is, and where the brief asked for them.
  */
 export function AppShell() {
-  const { membership, session, signOut } = useAuth();
+  const { membership, session } = useAuth();
   // The firm screen is where the day starts: it opens on what needs doing
   // rather than on a list of every matter ever opened.
   const [tab, setTab] = useState<Tab>("team");
   const [openMatter, setOpenMatter] = useState<string | null>(null);
   const [openClient, setOpenClient] = useState<string | null>(null);
+  const [settings, setSettings] = useState(false);
+  const [logo, setLogo] = useState<string | null>(null);
+
+  // The firm's own mark, in the header. Fetched once; a failure here leaves the
+  // name doing the job it already did.
+  useEffect(() => {
+    getFirm()
+      .then((f) => setLogo(logoUrl(f?.logo_path ?? null)))
+      .catch(() => setLogo(null));
+  }, [settings]);
 
   if (!membership) return null;
 
   function go(next: Tab) {
+    setSettings(false);
     setTab(next);
     setOpenMatter(null);
     setOpenClient(null);
@@ -80,30 +92,60 @@ export function AppShell() {
     <div className="flex min-h-full flex-col">
       <header className="border-b border-rule bg-surface">
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-3 sm:px-6 sm:pt-4">
-          <div className="flex items-baseline gap-2 sm:gap-3">
-            <span className="text-lg font-bold tracking-tight">LEXA</span>
+          <div className="flex items-center gap-2 sm:gap-3">
+            {logo ? (
+              <img
+                src={logo}
+                alt=""
+                className="h-7 w-7 shrink-0 rounded object-contain"
+              />
+            ) : (
+              <span className="text-lg font-bold tracking-tight">LEXA</span>
+            )}
             <button
-              onClick={() => go("team")}
-              aria-current={tab === "team" ? "page" : undefined}
+              onClick={() => {
+                setSettings(false);
+                go("team");
+              }}
               className={`truncate text-sm underline-offset-4 hover:underline ${
-                tab === "team" ? "font-semibold text-brand" : "text-muted"
+                tab === "team" && !settings ? "font-semibold text-brand" : "text-muted"
               }`}
             >
               {membership.org_name}
             </button>
           </div>
 
-          {/* The identity line is the first thing to go on a narrow screen: it
-              tells you who you are, which you already know. */}
-          <div className="hidden items-center gap-4 md:flex">
-            <span className="text-sm text-ink-soft">
+          <div className="flex items-center gap-3">
+            {/* The identity line is the first thing to go on a narrow screen:
+                it tells you who you are, which you already know. */}
+            <span className="hidden text-sm text-ink-soft md:inline">
               {session?.user.email}
               <span className="mx-1.5 text-rule">·</span>
               {ROLE_LABEL[membership.role] ?? membership.role}
             </span>
-            <Button variant="ghost" onClick={signOut}>
-              התנתק
-            </Button>
+
+            {/* Opposite the firm's name, on every screen and at every width.
+                Settings are rare enough that they must be findable without
+                being remembered. */}
+            <button
+              onClick={() => setSettings(true)}
+              aria-label="הגדרות המשרד"
+              aria-current={settings ? "page" : undefined}
+              className={`rounded-md p-2 transition-colors hover:bg-rule/50 ${
+                settings ? "text-brand" : "text-ink-soft"
+              }`}
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+                <path
+                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
           </div>
         </div>
 
@@ -136,7 +178,9 @@ export function AppShell() {
       {/* Padded at the bottom so the fixed phone navigation never covers the
           last row of a list. */}
       <main className="flex-1 pb-20 sm:pb-0">
-        {tab === "clients" && openClient ? (
+        {settings ? (
+          <SettingsScreen onClose={() => setSettings(false)} />
+        ) : tab === "clients" && openClient ? (
           <ClientScreen
             clientId={openClient}
             onBack={() => setOpenClient(null)}
