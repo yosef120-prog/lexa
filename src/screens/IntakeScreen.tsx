@@ -261,8 +261,20 @@ const cardId = (questionId: string) => `intake-q-${questionId}`;
 function jumpToQuestion(questionId: string) {
   const el = document.getElementById(cardId(questionId));
   if (!el) return;
+
   const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   el.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "center" });
+  if (still) return;
+
+  // A smooth scroll is an animation, and a browser that declines to run one
+  // leaves the client exactly where they were — which is the failure this
+  // whole function exists to prevent, arriving silently. So the arrival is
+  // checked rather than assumed, and an unmoved page is moved outright.
+  window.setTimeout(() => {
+    const box = el.getBoundingClientRect();
+    const offScreen = box.bottom < 0 || box.top > window.innerHeight;
+    if (offScreen) el.scrollIntoView({ behavior: "auto", block: "center" });
+  }, 600);
 }
 
 function Question({
