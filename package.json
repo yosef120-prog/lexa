@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node --experimental-strip-types test/events.test.mjs && node --experimental-strip-types test/csv.test.mjs && node --experimental-strip-types test/file-signature.test.mjs && node test/reminder-mail.test.mjs && node test/schema.test.mjs",
+    "test": "node --experimental-strip-types test/events.test.mjs && node --experimental-strip-types test/csv.test.mjs && node --experimental-strip-types test/file-signature.test.mjs && node --experimental-strip-types test/whatsapp.test.mjs && node test/reminder-mail.test.mjs && node test/schema.test.mjs",
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit"

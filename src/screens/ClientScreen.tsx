@@ -109,6 +109,8 @@ export function ClientScreen({
           <IntakePanel
             orgId={membership?.org_id ?? ""}
             clientId={clientId}
+            clientName={client.name}
+            clientPhone={client.phone}
             intakes={intakes}
             onChanged={reload}
             onEditForms={onOpenIntakes}

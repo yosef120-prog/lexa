@@ -13,6 +13,8 @@ import {
   type IntakeForm,
   type IntakeQuestion,
 } from "@/lib/intake";
+import { useAuth } from "@/lib/auth";
+import { intakeMessage, toWhatsAppNumber, whatsAppLink } from "@/lib/whatsapp";
 import { Button, Card, ErrorNote } from "@/components/ui";
 
 const STATUS_LOOK: Record<ClientIntake["status"], string> = {
@@ -36,20 +38,29 @@ const STATUS_LOOK: Record<ClientIntake["status"], string> = {
 export function IntakePanel({
   orgId,
   clientId,
+  clientName,
+  clientPhone,
   intakes,
   onChanged,
   onEditForms,
 }: {
   orgId: string;
   clientId: string;
+  clientName: string;
+  clientPhone: string | null;
   intakes: ClientIntake[];
   onChanged: () => void;
-  /** Opens the firm screen, where the questions are written. */
+  /** Opens the questionnaires screen, where the questions are written. */
   onEditForms: () => void;
 }) {
+  const { membership } = useAuth();
   const [forms, setForms] = useState<IntakeForm[]>([]);
   const [sending, setSending] = useState(false);
-  const [freshLink, setFreshLink] = useState<{ url: string; reused: boolean } | null>(null);
+  const [freshLink, setFreshLink] = useState<{
+    url: string;
+    reused: boolean;
+    formName: string;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -63,9 +74,14 @@ export function IntakePanel({
     setError(null);
     try {
       const { intake, reused } = await sendIntake(orgId, clientId, formId);
+      const form = forms.find((f) => f.id === formId);
       // Shown immediately, because the link is the product of the click and
       // making someone hunt for it afterwards is how it does not get sent.
-      setFreshLink({ url: intakeLink(intake.token), reused });
+      setFreshLink({
+        url: intakeLink(intake.token),
+        reused,
+        formName: form?.name ?? "שאלון",
+      });
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -83,7 +99,7 @@ export function IntakePanel({
 
       {error && <ErrorNote>{error}</ErrorNote>}
 
-      {freshLink ? (
+      {freshLink && (
         <div className="flex flex-col gap-2 rounded-md bg-brand/5 p-3">
           <p className="text-sm font-semibold">
             {freshLink.reused ? "כבר יש קישור פעיל ללקוח הזה" : "הקישור מוכן"}
@@ -91,8 +107,41 @@ export function IntakePanel({
           <p className="text-xs text-ink-soft">
             {freshLink.reused
               ? "זה אותו קישור, לא חדש. שליחת שניים הייתה מפצלת את התשובות בין שניהם."
-              : "שלח אותו ללקוח בוואטסאפ או במייל. הוא לא צריך חשבון או סיסמה — רק ללחוץ, למלא ולצרף."}
+              : "הלקוח לא צריך חשבון או סיסמה — רק ללחוץ, למלא ולצרף."}
           </p>
+
+          {/* The whole point: from here to the client's phone in one tap,
+              rather than copy, switch app, find contact, paste. */}
+          <a
+            href={whatsAppLink(
+              toWhatsAppNumber(clientPhone),
+              intakeMessage({
+                clientName,
+                firmName: membership?.org_name ?? "",
+                formName: freshLink.formName,
+                link: freshLink.url,
+              }),
+            )}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-[#25D366]
+                       px-4 py-2.5 text-sm font-semibold text-white hover:brightness-95"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden="true">
+              <path d="M17.5 14.4c-.3-.2-1.7-.9-2-1-.3-.1-.5-.2-.7.1-.2.3-.7 1-.9 1.2-.2.2-.3.2-.6.1-.3-.2-1.2-.5-2.3-1.4-.9-.8-1.4-1.7-1.6-2-.2-.3 0-.5.1-.6l.5-.5c.1-.2.2-.3.3-.5 0-.2 0-.4 0-.5 0-.2-.7-1.6-.9-2.2-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.4s1 2.8 1.2 3c.2.2 2 3.1 5 4.3.7.3 1.2.5 1.6.6.7.2 1.3.2 1.8.1.5-.1 1.7-.7 1.9-1.4.2-.7.2-1.3.2-1.4-.1-.1-.3-.2-.5-.3z" />
+              <path d="M12 2a10 10 0 0 0-8.6 15L2 22l5.2-1.4A10 10 0 1 0 12 2zm0 18.2c-1.6 0-3.1-.4-4.4-1.2l-.3-.2-3.1.8.8-3-.2-.3A8.2 8.2 0 1 1 12 20.2z" />
+            </svg>
+            שלח בוואטסאפ
+          </a>
+
+          {!toWhatsAppNumber(clientPhone) && (
+            // Said plainly: WhatsApp will still open, it just will not know
+            // who to. Better than a button that silently does half its job.
+            <p className="text-xs text-muted">
+              אין מספר טלפון תקין בכרטיס, אז וואטסאפ ייפתח עם ההודעה מוכנה ויבקש לבחור נמען.
+            </p>
+          )}
+
           <CopyLink link={freshLink.url} />
           <button
             onClick={() => setFreshLink(null)}
@@ -101,13 +150,17 @@ export function IntakePanel({
             סגור
           </button>
         </div>
-      ) : forms.length === 0 ? (
+      )}
+
+      {forms.length === 0 ? (
         <div className="flex flex-col items-start gap-2">
           <p className="text-sm text-ink-soft">עוד לא הוגדר שאלון.</p>
           <Button onClick={onEditForms}>הגדר שאלון</Button>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
+          {/* Always here, whether or not a link was just made. A firm sending
+              one questionnaire usually has a second in mind. */}
           <div className="flex flex-wrap gap-1.5">
             {forms.map((f) => (
               <Button key={f.id} onClick={() => send(f.id)} disabled={sending}>
@@ -115,8 +168,6 @@ export function IntakePanel({
               </Button>
             ))}
           </div>
-          {/* The link belongs here, where somebody is already thinking about
-              questionnaires — not only on a screen they would have to guess at. */}
           <button
             onClick={onEditForms}
             className="self-start text-xs text-ink-soft underline underline-offset-2 hover:text-ink"
