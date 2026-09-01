@@ -39,9 +39,20 @@ export function Field({
   );
 }
 
-export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
+/** `id` so a card can be linked to and scrolled to; nothing else needs it. */
+export function Card({
+  children,
+  className = "",
+  id,
+}: {
+  children: ReactNode;
+  className?: string;
+  id?: string;
+}) {
   return (
-    <div className={`rounded-lg border border-rule bg-surface p-6 ${className}`}>{children}</div>
+    <div id={id} className={`rounded-lg border border-rule bg-surface p-6 ${className}`}>
+      {children}
+    </div>
   );
 }
 

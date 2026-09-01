@@ -8,6 +8,7 @@
  * per test, which is the same contract from the policies' point of view.
  */
 import { PGlite } from "@electric-sql/pglite";
+import { ACCEPTED_TYPES } from "../src/lib/intake-files.ts";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -1703,6 +1704,20 @@ check("an attached file lands on the client card", arrived.filename, "תעודת
 check("in the bucket an outsider could write to", arrived.bucket, "intake-uploads");
 check("belonging to the client", arrived.client_id, clientA);
 check("and to no matter", arrived.matter_id, null);
+
+// The browser refuses a wrong file type before uploading it, so the client on
+// a phone is not made to push a video over cellular data to be told no at the
+// end. That copy is only safe while it matches the bucket exactly: a type the
+// browser admits and the bucket refuses is a client watching an upload finish
+// and then fail, which is the failure this was written to remove.
+const bucketTypes = (await db.query(
+  `select allowed_mime_types from storage.buckets where id = 'intake-uploads'`,
+)).rows[0].allowed_mime_types;
+check(
+  "the browser's list of file types is the bucket's list",
+  [...ACCEPTED_TYPES].sort(),
+  [...bucketTypes].sort(),
+);
 
 // A path outside the token's own folder is refused a second time here. The
 // storage policy already refuses it on the way in; these answer different

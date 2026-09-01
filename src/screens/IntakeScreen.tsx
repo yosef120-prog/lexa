@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { ACCEPT_ATTRIBUTE } from "@/lib/intake-files";
 import {
   describeTrouble,
   isVisible,
@@ -35,12 +36,23 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
   const [done, setDone] = useState(false);
   const [stillOwed, setStillOwed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A problem belonging to one question rather than to the form. Kept apart
+  // because the two want to be read in different places: a refused file is
+  // only meaningful beside the question that asked for it, and putting it at
+  // the bottom of a long form names a file the client can no longer find.
+  const [fault, setFault] = useState<{ questionId: string; message: string } | null>(null);
 
   useEffect(() => {
     openIntake(token)
       .then(setIntake)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, [token]);
+
+  // After the message is on the page, not before — otherwise the scroll lands
+  // where the card used to end and the client still has to hunt for it.
+  useEffect(() => {
+    if (fault) jumpToQuestion(fault.questionId);
+  }, [fault]);
 
   if (error && !intake) return <Frame><ErrorNote>{error}</ErrorNote></Frame>;
   if (!intake) return <Frame><p className="text-sm text-muted">טוען...</p></Frame>;
@@ -154,28 +166,43 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
       </div>
 
       <form onSubmit={submit} className="flex flex-col gap-4">
-        {asked.map((q) => (
-          <Card key={q.id}>
-            <Question
-              question={q}
-              value={values[q.id]}
-              files={files[q.id] ?? []}
-              fileStatus={fileStatus[q.id]}
-              token={token}
-              onValue={(v) => setValues((s) => ({ ...s, [q.id]: v }))}
-              onFiles={(f) => {
-                setFiles((s) => ({ ...s, [q.id]: f }));
-                // Attaching something answers the question; the excuse goes.
-                if (f.length > 0) setFileStatus((s) => ({ ...s, [q.id]: "provided" }));
-              }}
-              onFileStatus={(st) => {
-                setFileStatus((s) => ({ ...s, [q.id]: st }));
-                if (st !== "provided") setFiles((s) => ({ ...s, [q.id]: [] }));
-              }}
-              onError={setError}
-            />
-          </Card>
-        ))}
+        {asked.map((q) => {
+          // Anything the client does to this question is an attempt to fix
+          // whatever was wrong with it, so the complaint goes.
+          const clear = () => setFault((f) => (f?.questionId === q.id ? null : f));
+          return (
+            <Card key={q.id} id={cardId(q.id)}>
+              <Question
+                question={q}
+                value={values[q.id]}
+                files={files[q.id] ?? []}
+                fileStatus={fileStatus[q.id]}
+                token={token}
+                onValue={(v) => setValues((s) => ({ ...s, [q.id]: v }))}
+                onFiles={(f) => {
+                  clear();
+                  setFiles((s) => ({ ...s, [q.id]: f }));
+                  // Attaching something answers the question; the excuse goes.
+                  if (f.length > 0) setFileStatus((s) => ({ ...s, [q.id]: "provided" }));
+                }}
+                onFileStatus={(st) => {
+                  clear();
+                  setFileStatus((s) => ({ ...s, [q.id]: st }));
+                  if (st !== "provided") setFiles((s) => ({ ...s, [q.id]: [] }));
+                }}
+                onError={(message) => setFault({ questionId: q.id, message })}
+              />
+
+              {/* Here, and only here. The client is looking at the question
+                  they just answered wrongly. */}
+              {fault?.questionId === q.id && (
+                <div className="mt-3">
+                  <ErrorNote>{fault.message}</ErrorNote>
+                </div>
+              )}
+            </Card>
+          );
+        })}
 
         {error && <ErrorNote>{error}</ErrorNote>}
 
@@ -185,7 +212,22 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
 
         {missing.length > 0 && (
           <p className="text-center text-xs text-muted">
-            נשאר למלא: {missing.map((q) => q.label).join(", ")}
+            {/* Names that go somewhere. A list of what is missing, at the
+                bottom of a form long enough to need one, is otherwise a
+                riddle rather than help. */}
+            נשאר למלא:{" "}
+            {missing.map((q, i) => (
+              <span key={q.id}>
+                {i > 0 && ", "}
+                <button
+                  type="button"
+                  onClick={() => jumpToQuestion(q.id)}
+                  className="underline underline-offset-2 hover:text-ink-soft"
+                >
+                  {q.label}
+                </button>
+              </span>
+            ))}
           </p>
         )}
 
@@ -205,6 +247,22 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
       </form>
     </div>
   );
+}
+
+const cardId = (questionId: string) => `intake-q-${questionId}`;
+
+/**
+ * Puts a question on screen.
+ *
+ * `center` rather than `start`: a question near the bottom of the form cannot
+ * be scrolled to the top of the window, and landing at the top of the card
+ * hides an error that sits underneath it.
+ */
+function jumpToQuestion(questionId: string) {
+  const el = document.getElementById(cardId(questionId));
+  if (!el) return;
+  const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  el.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "center" });
 }
 
 function Question({
@@ -453,6 +511,11 @@ function Question({
                 <input
                   type="file"
                   className="hidden"
+                  // A hint the picker honours, not a check: a phone offering
+                  // the camera will now open it on photo rather than video,
+                  // which is where the wrong file came from in the first
+                  // place. What actually decides is the bucket.
+                  accept={ACCEPT_ATTRIBUTE}
                   disabled={uploading}
                   onChange={async (e) => {
                     const file = e.target.files?.[0];

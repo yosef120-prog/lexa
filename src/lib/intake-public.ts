@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import type { QuestionType } from "@/lib/intake";
+import { whyFileIsRefused } from "@/lib/intake-files";
 
 /**
  * The client's side of an intake form.
@@ -103,6 +104,10 @@ export type UploadedFile = {
  * third fails.
  */
 export async function uploadIntakeFile(token: string, file: File): Promise<UploadedFile> {
+  // Asked before anything is sent, so a refusal costs no upload.
+  const refusal = whyFileIsRefused(file);
+  if (refusal) throw new Error(refusal);
+
   const path = `${token}/${crypto.randomUUID()}`;
 
   const { error } = await supabase.storage
