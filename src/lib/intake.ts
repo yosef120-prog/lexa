@@ -57,11 +57,13 @@ export type IntakeForm = {
   created_at: string;
 };
 
-export type IntakeStatus = "sent" | "opened" | "submitted" | "revoked";
+export type IntakeStatus = "sent" | "opened" | "partial" | "submitted" | "revoked";
 
 export const INTAKE_STATUS_LABEL: Record<IntakeStatus, string> = {
   sent: "נשלח",
   opened: "נפתח",
+  // Named for what the firm has to do about it, not for the state machine.
+  partial: "חסרים מסמכים",
   submitted: "הוגש",
   revoked: "בוטל",
 };
@@ -83,6 +85,8 @@ export type IntakeAnswer = {
   value_number: number | null;
   value_date: string | null;
   value_json: unknown;
+  /** Documents only: attached, still coming, or not applicable. */
+  status: "provided" | "later" | "not_applicable" | null;
 };
 
 export function intakeLink(token: string): string {
@@ -241,18 +245,54 @@ export async function listClientIntakes(clientId: string): Promise<ClientIntake[
   });
 }
 
+const INTAKE_COLUMNS =
+  "id, token, status, expires_at, opened_at, submitted_at, created_at, form:intake_forms(id, name)";
+
+export type SentIntake = { intake: ClientIntake; reused: boolean };
+
+/**
+ * Sending a questionnaire, or handing back the one already out there.
+ *
+ * A second live link for the same client and form is worse than useless: they
+ * would hold two, the answers would split between them, and whichever they
+ * found first would probably be the wrong one. So an existing link that still
+ * works is returned as it is, and a new one is minted only when there is none.
+ */
 export async function sendIntake(
   orgId: string,
   clientId: string,
   formId: string,
-): Promise<ClientIntake> {
+): Promise<SentIntake> {
+  const { data: live, error: findError } = await supabase
+    .from("client_intakes")
+    .select(INTAKE_COLUMNS)
+    .eq("client_id", clientId)
+    .eq("form_id", formId)
+    .in("status", ["sent", "opened", "partial"])
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (findError) throw new Error(describeDbError(findError));
+
+  if (live && live.length > 0) {
+    return { intake: shapeIntake(live[0]), reused: true };
+  }
+
   const { data, error } = await supabase
     .from("client_intakes")
     .insert({ org_id: orgId, client_id: clientId, form_id: formId })
-    .select("id, token, status, expires_at, opened_at, submitted_at, created_at, form:intake_forms(id, name)")
+    .select(INTAKE_COLUMNS)
     .single();
   if (error) throw new Error(describeDbError(error));
-  return { ...(data as unknown as ClientIntake), form: null };
+  return { intake: shapeIntake(data), reused: false };
+}
+
+function shapeIntake(row: unknown): ClientIntake {
+  const f = (row as Record<string, unknown>).form;
+  return {
+    ...(row as ClientIntake),
+    form: Array.isArray(f) ? ((f[0] as ClientIntake["form"]) ?? null) : (f as ClientIntake["form"]),
+  };
 }
 
 /**
@@ -322,7 +362,7 @@ export async function markIntakeReviewed(id: string): Promise<void> {
 export async function listAnswers(intakeId: string): Promise<IntakeAnswer[]> {
   const { data, error } = await supabase
     .from("intake_answers")
-    .select("question_id, value_text, value_number, value_date, value_json")
+    .select("question_id, value_text, value_number, value_date, value_json, status")
     .eq("intake_id", intakeId);
   if (error) throw new Error(describeDbError(error));
   return data ?? [];
@@ -349,9 +389,11 @@ export function answerText(question: IntakeQuestion, answer: IntakeAnswer | unde
     case "signature":
       return Array.isArray(answer.value_json) && answer.value_json.length > 0 ? "נחתם" : "—";
     case "file":
-      // The files themselves are documents on the client card by now; this is
-      // only the count, so the answer list reads consistently.
-      return Array.isArray(answer.value_json)
+      // What the client said about it, which is the part the firm acts on: a
+      // count of zero and "does not apply to me" mean very different things.
+      if (answer.status === "later") return "אין לו כרגע — ישלח בהמשך";
+      if (answer.status === "not_applicable") return "לא רלוונטי";
+      return Array.isArray(answer.value_json) && answer.value_json.length > 0
         ? `${(answer.value_json as unknown[]).length} קבצים`
         : "—";
     default:

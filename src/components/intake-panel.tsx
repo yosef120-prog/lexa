@@ -18,6 +18,10 @@ import { Button, Card, ErrorNote } from "@/components/ui";
 const STATUS_LOOK: Record<ClientIntake["status"], string> = {
   sent: "bg-ground text-ink-soft",
   opened: "bg-warning/15 text-warning",
+  // Partial is the state that needs a nudge, so it wears the warning colour
+  // rather than the calm one: something is outstanding and somebody has to
+  // either wait or ask.
+  partial: "bg-warning/15 text-warning",
   submitted: "bg-brand/15 text-brand",
   revoked: "bg-danger/10 text-danger line-through",
 };
@@ -45,7 +49,7 @@ export function IntakePanel({
 }) {
   const [forms, setForms] = useState<IntakeForm[]>([]);
   const [sending, setSending] = useState(false);
-  const [freshLink, setFreshLink] = useState<string | null>(null);
+  const [freshLink, setFreshLink] = useState<{ url: string; reused: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,10 +62,10 @@ export function IntakePanel({
     setSending(true);
     setError(null);
     try {
-      const created = await sendIntake(orgId, clientId, formId);
+      const { intake, reused } = await sendIntake(orgId, clientId, formId);
       // Shown immediately, because the link is the product of the click and
       // making someone hunt for it afterwards is how it does not get sent.
-      setFreshLink(intakeLink(created.token));
+      setFreshLink({ url: intakeLink(intake.token), reused });
       onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -81,11 +85,15 @@ export function IntakePanel({
 
       {freshLink ? (
         <div className="flex flex-col gap-2 rounded-md bg-brand/5 p-3">
-          <p className="text-sm font-semibold">הקישור מוכן</p>
-          <p className="text-xs text-ink-soft">
-            שלח אותו ללקוח בוואטסאפ או במייל. הוא לא צריך חשבון או סיסמה — רק ללחוץ, למלא ולצרף.
+          <p className="text-sm font-semibold">
+            {freshLink.reused ? "כבר יש קישור פעיל ללקוח הזה" : "הקישור מוכן"}
           </p>
-          <CopyLink link={freshLink} />
+          <p className="text-xs text-ink-soft">
+            {freshLink.reused
+              ? "זה אותו קישור, לא חדש. שליחת שניים הייתה מפצלת את התשובות בין שניהם."
+              : "שלח אותו ללקוח בוואטסאפ או במייל. הוא לא צריך חשבון או סיסמה — רק ללחוץ, למלא ולצרף."}
+          </p>
+          <CopyLink link={freshLink.url} />
           <button
             onClick={() => setFreshLink(null)}
             className="self-start text-xs text-brand underline underline-offset-2"
@@ -137,7 +145,8 @@ function IntakeRow({ intake, onChanged }: { intake: ClientIntake; onChanged: () 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const live = intake.status === "sent" || intake.status === "opened";
+  const live =
+    intake.status === "sent" || intake.status === "opened" || intake.status === "partial";
   const daysLeft = Math.ceil((new Date(intake.expires_at).getTime() - Date.now()) / 86_400_000);
 
   const load = useCallback(async () => {

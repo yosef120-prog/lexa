@@ -51,7 +51,12 @@ export type PublicIntake = {
   form_name: string | null;
   intro: string | null;
   questions: PublicQuestion[];
+  /** True when this is a return visit for documents left outstanding. */
+  is_return: boolean;
 };
+
+/** What a client can say about a document that is not attached. */
+export type FileStatus = "provided" | "later" | "not_applicable";
 
 const TROUBLE: Record<string, string> = {
   NOT_FOUND: "הקישור הזה לא מוכר. בקש מהמשרד קישור חדש.",
@@ -73,7 +78,10 @@ export async function openIntake(token: string): Promise<PublicIntake> {
 
   const row = (data as PublicIntake[] | null)?.[0];
   if (!row) {
-    return { valid: false, reason: "NOT_FOUND", org_name: null, client_name: null, form_name: null, intro: null, questions: [] };
+    return {
+      valid: false, reason: "NOT_FOUND", org_name: null, client_name: null,
+      form_name: null, intro: null, questions: [], is_return: false,
+    };
   }
   return { ...row, questions: (row.questions ?? []) as PublicQuestion[] };
 }
@@ -133,6 +141,8 @@ export type AnswerPayload = {
   number?: number | null;
   date?: string | null;
   json?: unknown;
+  /** Documents only. Anything left as "later" keeps the form open. */
+  status?: FileStatus;
 };
 
 export async function submitIntake(token: string, answers: AnswerPayload[]): Promise<void> {

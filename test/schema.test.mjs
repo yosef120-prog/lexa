@@ -1506,7 +1506,11 @@ check("and carries the questions", intakePeek.questions.length, 2);
 // The whole of what an outsider learns. If a column is ever added to the
 // return type, this fails and somebody has to think about it.
 check("and nothing else at all", Object.keys(intakePeek).sort(), [
-  "client_name", "form_name", "intro", "org_name", "questions", "reason", "valid",
+  // is_return says whether the client is coming back for outstanding
+  // documents. It tells them nothing about the firm, which is the property
+  // this check exists to hold.
+  "client_name", "form_name", "intro", "is_return", "org_name", "questions",
+  "reason", "valid",
 ]);
 
 const opened = await asUser(UID_A, async () =>
@@ -1739,6 +1743,104 @@ try {
   removeTwice = e.message;
 }
 check("removing it again says so plainly", removeTwice.includes("NOT_FOUND"), true);
+
+
+// A form that comes back without everything.
+//
+// The client has the deed and has to ask the bank for the mortgage statement.
+// The old model gave them two choices — abandon the form or upload nothing —
+// and both end with the lawyer chasing them, which is the thing this feature
+// exists to stop.
+const partialToken = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.client_intakes (org_id, client_id, form_id)
+    values ('${orgA}', '${clientA}', '${intakeForm}') returning token
+  `)).rows[0].token,
+);
+const textQ = await asUser(UID_A, async () =>
+  (await db.query(`
+    select id from public.intake_questions where form_id = '${intakeForm}' and type = 'text'
+  `)).rows[0].id,
+);
+const fileQ = await asUser(UID_A, async () =>
+  (await db.query(`
+    select id from public.intake_questions where form_id = '${intakeForm}' and type = 'file'
+  `)).rows[0].id,
+);
+
+await asAnon(async () => {
+  await db.query(`
+    select public.submit_intake('${partialToken}',
+      ('[{"question_id": "${textQ}", "text": "יוסף חיים כהן"},
+         {"question_id": "${fileQ}", "status": "later"}]')::jsonb)
+  `);
+});
+
+const afterPartial = await asUser(UID_A, async () =>
+  (await db.query(`
+    select status::text, submitted_at from public.client_intakes where token = '${partialToken}'
+  `)).rows[0],
+);
+check("a document still coming leaves the form open", afterPartial.status, "partial");
+// The firm's "it arrived" banner must not fire on a half-finished return.
+check("and it does not count as submitted", afterPartial.submitted_at, null);
+check("the token still accepts an upload", await asUser(UID_A, async () =>
+  (await db.query(`select public.intake_is_open('${partialToken}') as open`)).rows[0].open,
+), true);
+
+// The whole point of returning: only what is still owed.
+const returning = await asAnon(async () =>
+  (await db.query(`select is_return, questions from public.open_intake('${partialToken}')`)).rows[0],
+);
+check("coming back is marked as such", returning.is_return, true);
+check("and only the outstanding document is asked for", returning.questions.length, 1);
+check("which is the one left as still coming", returning.questions[0].id, fileQ);
+
+// The document arrives.
+await asAnon(async () => {
+  await db.query(`
+    select public.submit_intake('${partialToken}',
+      ('[{"question_id": "${fileQ}", "status": "provided",
+          "json": [{"path": "${partialToken}/deed", "filename": "נסח טאבו.pdf"}]}]')::jsonb)
+  `);
+});
+
+const afterComplete = await asUser(UID_A, async () =>
+  (await db.query(`
+    select status::text, submitted_at is not null as done
+    from public.client_intakes where token = '${partialToken}'
+  `)).rows[0],
+);
+check("the last document closes the form", afterComplete.status, "submitted");
+check("and it counts as submitted now", afterComplete.done, true);
+
+// The answer given on the first visit survived the second.
+check("the earlier answer was not lost", await asUser(UID_A, async () =>
+  (await db.query(`
+    select a.value_text from public.intake_answers a
+    join public.client_intakes i on i.id = a.intake_id
+    where i.token = '${partialToken}' and a.question_id = '${textQ}'
+  `)).rows[0].value_text,
+), "יוסף חיים כהן");
+
+// "Does not apply to me" is an answer, not an omission: it must not hold the
+// form open waiting for something that is never coming.
+const naToken = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.client_intakes (org_id, client_id, form_id)
+    values ('${orgA}', '${clientA}', '${intakeForm}') returning token
+  `)).rows[0].token,
+);
+await asAnon(async () => {
+  await db.query(`
+    select public.submit_intake('${naToken}',
+      ('[{"question_id": "${textQ}", "text": "x"},
+         {"question_id": "${fileQ}", "status": "not_applicable"}]')::jsonb)
+  `);
+});
+check("not applicable closes the form rather than holding it", await asUser(UID_A, async () =>
+  (await db.query(`select status::text from public.client_intakes where token = '${naToken}'`)).rows[0].status,
+), "submitted");
 
 
 // ---------------------------------------------------------------- embeds

@@ -7,6 +7,7 @@ import {
   uploadIntakeFile,
   uploadSignature,
   type AnswerPayload,
+  type FileStatus,
   type PublicIntake,
   type PublicQuestion,
   type UploadedFile,
@@ -28,8 +29,11 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
   const [intake, setIntake] = useState<PublicIntake | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [files, setFiles] = useState<Record<string, UploadedFile[]>>({});
+  // Per document question: attached, coming later, or not applicable.
+  const [fileStatus, setFileStatus] = useState<Record<string, FileStatus>>({});
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const [stillOwed, setStillOwed] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -56,8 +60,13 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
     return (
       <Frame>
         <h1 className="text-xl font-bold">קיבלנו, תודה.</h1>
+        {/* Truthful about what happens next. Somebody who said "I will send it
+            later" has something left to do, and telling them otherwise is how
+            it never arrives. */}
         <p className="text-sm text-ink-soft">
-          התשובות והמסמכים הגיעו ל{intake.org_name}. אין צורך לעשות שום דבר נוסף.
+          {stillOwed
+            ? `מה ששלחת הגיע ל${intake.org_name}. כשהמסמכים החסרים יהיו אצלך — פתח שוב את אותו קישור והעלה רק אותם.`
+            : `התשובות והמסמכים הגיעו ל${intake.org_name}. אין צורך לעשות שום דבר נוסף.`}
         </p>
       </Frame>
     );
@@ -70,7 +79,12 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
 
   const missing = asked.filter((q) => {
     if (!q.required) return false;
-    if (q.type === "file" || q.type === "signature") return (files[q.id] ?? []).length === 0;
+    // A document is answered either by attaching it or by saying why it is not
+    // here. Both are answers; only silence is missing.
+    if (q.type === "file") {
+      return (files[q.id] ?? []).length === 0 && !fileStatus[q.id];
+    }
+    if (q.type === "signature") return (files[q.id] ?? []).length === 0;
     const v = values[q.id];
     return v === undefined || v === null || v === "" || (Array.isArray(v) && v.length === 0);
   });
@@ -92,8 +106,14 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
             return { question_id: q.id, date: (v as string) || null };
           case "multi_choice":
             return { question_id: q.id, json: (v as string[]) ?? [] };
-          case "file":
-            return { question_id: q.id, json: files[q.id] ?? [] };
+          case "file": {
+            const attached = files[q.id] ?? [];
+            return {
+              question_id: q.id,
+              json: attached,
+              status: attached.length > 0 ? "provided" : (fileStatus[q.id] ?? "later"),
+            };
+          }
           case "signature":
             return { question_id: q.id, json: files[q.id] ?? [] };
           case "consent":
@@ -106,6 +126,7 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
         }
       });
       await submitIntake(token, payload);
+      setStillOwed(payload.some((a) => a.status === "later"));
       setDone(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -121,7 +142,15 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
         <p className="mt-1 text-sm text-ink-soft">
           {intake.client_name} · {intake.org_name}
         </p>
-        {intake.intro && <p className="mt-3 text-sm">{intake.intro}</p>}
+        {intake.is_return ? (
+          // Somebody who came back holding one piece of paper should be told
+          // immediately that this is short, not made to scroll for it.
+          <p className="mt-3 rounded-md bg-brand/10 p-3 text-sm">
+            נשאר רק להשלים את המסמכים שלא היו לך קודם. כל השאר כבר התקבל.
+          </p>
+        ) : (
+          intake.intro && <p className="mt-3 text-sm">{intake.intro}</p>
+        )}
       </div>
 
       <form onSubmit={submit} className="flex flex-col gap-4">
@@ -131,9 +160,18 @@ export function IntakeScreen({ token, onLeave }: { token: string; onLeave: () =>
               question={q}
               value={values[q.id]}
               files={files[q.id] ?? []}
+              fileStatus={fileStatus[q.id]}
               token={token}
               onValue={(v) => setValues((s) => ({ ...s, [q.id]: v }))}
-              onFiles={(f) => setFiles((s) => ({ ...s, [q.id]: f }))}
+              onFiles={(f) => {
+                setFiles((s) => ({ ...s, [q.id]: f }));
+                // Attaching something answers the question; the excuse goes.
+                if (f.length > 0) setFileStatus((s) => ({ ...s, [q.id]: "provided" }));
+              }}
+              onFileStatus={(st) => {
+                setFileStatus((s) => ({ ...s, [q.id]: st }));
+                if (st !== "provided") setFiles((s) => ({ ...s, [q.id]: [] }));
+              }}
               onError={setError}
             />
           </Card>
@@ -173,17 +211,21 @@ function Question({
   question: q,
   value,
   files,
+  fileStatus,
   token,
   onValue,
   onFiles,
+  onFileStatus,
   onError,
 }: {
   question: PublicQuestion;
   value: unknown;
   files: UploadedFile[];
+  fileStatus: FileStatus | undefined;
   token: string;
   onValue: (v: unknown) => void;
   onFiles: (f: UploadedFile[]) => void;
+  onFileStatus: (s: FileStatus) => void;
   onError: (e: string) => void;
 }) {
   const [uploading, setUploading] = useState(false);
@@ -383,35 +425,76 @@ function Question({
             ))}
           </ul>
 
-          {/* Uploaded one at a time as they are chosen, not held until submit:
-              somebody photographing three documents on a phone should not lose
-              the first two because the third failed. */}
-          <label
-            className={`block cursor-pointer rounded-md border border-dashed border-rule
-                        px-3 py-4 text-center text-sm font-semibold ${
-                          uploading ? "text-muted" : "text-brand"
-                        }`}
-          >
-            {uploading ? "מעלה..." : files.length > 0 ? "הוסף עוד קובץ" : "בחר קובץ או צלם"}
-            <input
-              type="file"
-              className="hidden"
-              disabled={uploading}
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (!file) return;
-                setUploading(true);
-                try {
-                  onFiles([...files, await uploadIntakeFile(token, file)]);
-                } catch (err) {
-                  onError(err instanceof Error ? err.message : String(err));
-                } finally {
-                  setUploading(false);
-                }
-              }}
-            />
-          </label>
+          {fileStatus === "later" || fileStatus === "not_applicable" ? (
+            <div className="flex items-center justify-between gap-2 rounded-md bg-ground px-3 py-2.5">
+              <span className="text-sm">
+                {fileStatus === "later" ? "תשלח את המסמך בהמשך" : "לא רלוונטי עבורך"}
+              </span>
+              <button
+                type="button"
+                onClick={() => onFileStatus("provided")}
+                className="shrink-0 text-xs font-semibold text-brand underline underline-offset-2"
+              >
+                שנה
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Uploaded as they are chosen rather than held until submit:
+                  somebody photographing three documents should not lose the
+                  first two because the third failed. */}
+              <label
+                className={`block cursor-pointer rounded-md border border-dashed border-rule
+                            px-3 py-4 text-center text-sm font-semibold ${
+                              uploading ? "text-muted" : "text-brand"
+                            }`}
+              >
+                {uploading ? "מעלה..." : files.length > 0 ? "הוסף עוד קובץ" : "בחר קובץ או צלם"}
+                <input
+                  type="file"
+                  className="hidden"
+                  disabled={uploading}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    setUploading(true);
+                    try {
+                      onFiles([...files, await uploadIntakeFile(token, file)]);
+                    } catch (err) {
+                      onError(err instanceof Error ? err.message : String(err));
+                    } finally {
+                      setUploading(false);
+                    }
+                  }}
+                />
+              </label>
+
+              {/* The two honest answers besides the document itself. Without
+                  them the only way past a document you do not have is to
+                  abandon the form, and then the firm chases you anyway. */}
+              {files.length === 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onFileStatus("later")}
+                    className="rounded-md bg-ground px-2.5 py-1.5 text-xs font-semibold text-ink-soft
+                               hover:bg-rule/60"
+                  >
+                    אין לי כרגע — אשלח בהמשך
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onFileStatus("not_applicable")}
+                    className="rounded-md bg-ground px-2.5 py-1.5 text-xs font-semibold text-ink-soft
+                               hover:bg-rule/60"
+                  >
+                    לא רלוונטי עבורי
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       );
 
