@@ -1434,6 +1434,9 @@ const authGrants = await db.query(`
 `);
 check("authenticated holds exactly the granted privileges", authGrants.rows, [
   { table_name: "active_timers", privs: "DELETE,INSERT,SELECT" },
+  // Only DELETE at table level. Everything else is column-scoped, which is
+  // what keeps the key write-only.
+  { table_name: "ai_connections", privs: "DELETE" },
   { table_name: "audit_log", privs: "SELECT" },
   // Editable and deletable by their author only, which the policies decide.
   // The grant has to allow both for the policy to have anything to narrow.
@@ -2217,6 +2220,133 @@ await asUser(UID_B, async () => {
   otherFirmPayments = (await db.query(`select id from public.payment_milestones`)).rows.length;
 });
 check("another firm sees no payment dates", otherFirmPayments, 0);
+
+console.log("\nschema · searching inside the documents\n");
+
+// Text pulled out of a file so it can be searched. A photograph has none,
+// which is the whole reason the AI search exists beside this one.
+await asUser(UID_A, async () => {
+  await db.query(`
+    insert into public.documents
+      (org_id, client_id, storage_path, filename, mime, text_content, text_state)
+    values
+      ('${orgA}', '${clientA}', 'x/1', 'נסח טאבו.pdf', 'application/pdf',
+       'לשכת רישום המקרקעין. הנכס רשום על שם המוכר. אין שעבודים.', 'done'),
+      ('${orgA}', '${clientA}', 'x/2', 'הסכם מכר.pdf', 'application/pdf',
+       'התמורה תשולם בשלושה תשלומים. התשלום הראשון במעמד החתימה.', 'done'),
+      ('${orgA}', '${clientA}', 'x/3', 'תמונה.jpg', 'image/jpeg', null, 'no_text')
+  `);
+});
+
+const docByName = await asUser(UID_A, async () =>
+  (await db.query(`select filename, where_found from public.search_client_documents('${clientA}', 'טאבו')`)).rows,
+);
+check("a word in the file name finds the file", docByName[0]?.filename, "נסח טאבו.pdf");
+check("and says that is where it matched", docByName[0]?.where_found, "filename");
+
+const byContent = await asUser(UID_A, async () =>
+  (await db.query(`select filename, where_found, snippet from public.search_client_documents('${clientA}', 'שעבודים')`)).rows,
+);
+check("a word inside the file finds it too", byContent[0]?.filename, "נסח טאבו.pdf");
+check("named as a content match", byContent[0]?.where_found, "content");
+// So the firm can see why a file came back without opening it.
+check("with the surrounding words", byContent[0]?.snippet?.includes("שעבודים"), true);
+
+// The reason this is a substring match and not to_tsvector: Postgres has no
+// Hebrew dictionary, so "בשלושה" and "שלושה" would index as unrelated words
+// and a lawyer searching the second would not find the first.
+const prefixed = await asUser(UID_A, async () =>
+  (await db.query(`select filename from public.search_client_documents('${clientA}', 'שלושה')`)).rows,
+);
+check("a word wearing a Hebrew prefix is still found", prefixed[0]?.filename, "הסכם מכר.pdf");
+
+const nothing = await asUser(UID_A, async () =>
+  (await db.query(`select filename from public.search_client_documents('${clientA}', 'משכנתא')`)).rows.length,
+);
+check("a word in none of them finds none of them", nothing, 0);
+
+let docOutsiderFound = -1;
+await asUser(UID_B, async () => {
+  docOutsiderFound = (await db.query(`
+    select filename from public.search_client_documents('${clientA}', 'טאבו')
+  `)).rows.length;
+});
+// The function runs as the caller, so row level security answers this rather
+// than a filter the function could have forgotten.
+check("another firm searching the same client finds nothing", docOutsiderFound, 0);
+
+console.log("\nschema · the firm's own AI key\n");
+
+await asUser(UID_A, async () => {
+  await db.query(`
+    insert into public.ai_connections (org_id, api_key, model)
+    values ('${orgA}', 'sk-ant-secret-value', 'claude-sonnet-5')
+  `);
+});
+
+let aiKeyRead = "";
+await asUser(UID_A, async () => {
+  try {
+    await db.query(`select api_key from public.ai_connections`);
+    aiKeyRead = "allowed";
+  } catch (e) {
+    aiKeyRead = e.code === "42501" ? "refused" : `other:${e.code}`;
+  }
+});
+check("even an owner cannot read the key back", aiKeyRead, "refused");
+
+let aiStarRead = "";
+await asUser(UID_A, async () => {
+  try {
+    await db.query(`select * from public.ai_connections`);
+    aiStarRead = "allowed";
+  } catch (e) {
+    aiStarRead = e.code === "42501" ? "refused" : `other:${e.code}`;
+  }
+});
+// A query that wants the key has to name it, and naming it is refused. This is
+// what turns "we sent the key to the browser" into an error rather than a
+// code review.
+check("and select * is refused rather than quietly including it", aiStarRead, "refused");
+
+const aiVisible = await asUser(UID_A, async () =>
+  (await db.query(`select provider, model from public.ai_connections`)).rows[0],
+);
+check("everything else about the connection reads", aiVisible.model, "claude-sonnet-5");
+
+// The trap this nearly walked into: write_audit_redacted was written for
+// whatsapp_connections and strips 'api_token'. This table's secret is called
+// 'api_key', so the untouched function would have written it into audit_log —
+// which every member can read — carrying it straight past the column grants.
+const aiAudited = (await db.query(`
+  select after::text as after from public.audit_log
+  where entity = 'ai_connections' order by created_at desc limit 1
+`)).rows[0].after;
+check("connecting is recorded", aiAudited.includes("claude-sonnet-5"), true);
+check("without the key in the record", aiAudited.includes("sk-ant-secret-value"), false);
+
+let aiColleagueKey = "";
+await asUser(UID_C_TIMER, async () => {
+  try {
+    await db.query(`select api_key from public.ai_connections`);
+    aiColleagueKey = "allowed";
+  } catch (e) {
+    aiColleagueKey = "refused";
+  }
+});
+check("nor can a colleague", aiColleagueKey, "refused");
+
+const aiColleagueSees = await asUser(UID_C_TIMER, async () =>
+  (await db.query(`select model from public.ai_connections`)).rows.length,
+);
+// Every member uses the button, so every member may know it is on.
+check("but a colleague can see the search is available", aiColleagueSees, 1);
+
+let otherFirmAi = -1;
+await asUser(UID_B, async () => {
+  otherFirmAi = (await db.query(`select model from public.ai_connections`)).rows.length;
+});
+check("and another firm sees no connection at all", otherFirmAi, 0);
 
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 

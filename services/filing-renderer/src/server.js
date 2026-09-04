@@ -2,6 +2,8 @@ import { createServer } from "node:http";
 import { buildFiling, PART_LIMIT_BYTES } from "./build.js";
 import { createRest, verifyToken } from "./supabase-rest.js";
 import { sendMessage, toChatId } from "./whatsapp.js";
+import { extractText } from "./extract.js";
+import { ask, buildContent, LIMITS } from "./ask.js";
 
 const PORT = process.env.PORT || 8080;
 const BUCKET = "matter-documents";
@@ -176,8 +178,10 @@ createServer(async (req, res) => {
 
   const isBuild = req.method === "POST" && req.url.startsWith("/build");
   const isWhatsApp = req.method === "POST" && req.url.startsWith("/whatsapp/send");
+  const isIndex = req.method === "POST" && req.url.startsWith("/documents/index");
+  const isAsk = req.method === "POST" && req.url.startsWith("/documents/ask");
 
-  if (!isBuild && !isWhatsApp) {
+  if (!isBuild && !isWhatsApp && !isIndex && !isAsk) {
     return send(404, { error: "Not found" });
   }
 
@@ -194,6 +198,8 @@ createServer(async (req, res) => {
   for await (const chunk of req) payload += chunk;
 
   if (isWhatsApp) return whatsapp({ send, userId, payload });
+  if (isIndex) return indexDocuments({ send, userId, payload });
+  if (isAsk) return askDocuments({ send, userId, payload });
 
   let bundleId;
   try {
@@ -220,6 +226,166 @@ createServer(async (req, res) => {
     console.error("render failed", error);
     return send(500, { error: error.message });
   }
+  /**
+   * Whoever is asking, and whether they may.
+   *
+   * Every one of these endpoints reads a firm's files with a role that
+   * bypasses row level security, so membership is established here before
+   * anything is opened. A stranger naming somebody else's client is refused
+   * before a single byte is read.
+   */
+  async function memberOfClientOrg(userId, clientId) {
+    const client = await db.selectOne("clients", `id=eq.${clientId}&select=org_id`);
+    if (!client) return null;
+    const seat = await db.selectOne(
+      "org_members",
+      `org_id=eq.${client.org_id}&user_id=eq.${userId}&status=eq.active&select=user_id`,
+    );
+    return seat ? client.org_id : null;
+  }
+
+  /**
+   * Reading the text out of files nobody has read yet.
+   *
+   * Pulled rather than pushed: an upload does not call this, because an intake
+   * file arrives from a client with no session and nothing to make the call.
+   * The firm's own browser asks when it opens a card, which means the files
+   * that get indexed first are the ones somebody is actually looking at.
+   */
+  async function indexDocuments({ send, userId, payload }) {
+    let clientId;
+    try {
+      ({ clientId } = JSON.parse(payload));
+    } catch {
+      return send(400, { error: "Invalid JSON" });
+    }
+    if (!clientId) return send(400, { error: "clientId is required" });
+
+    const orgId = await memberOfClientOrg(userId, clientId);
+    if (!orgId) return send(403, { error: "Forbidden" });
+
+    const pending = await db.select(
+      "documents",
+      `client_id=eq.${clientId}&text_state=eq.pending&deleted_at=is.null` +
+        "&select=id,bucket,storage_path,filename,mime,size_bytes&limit=20",
+    );
+
+    let read = 0;
+    for (const doc of pending ?? []) {
+      // A file too large to hold in memory is skipped rather than crashing the
+      // container for every other document behind it.
+      if ((doc.size_bytes ?? 0) > 20 * 1024 * 1024) {
+        await db.update("documents", `id=eq.${doc.id}`, {
+          text_state: "unsupported",
+          text_read_at: new Date().toISOString(),
+        });
+        continue;
+      }
+
+      let result;
+      try {
+        const bytes = await db.downloadObject(doc.bucket, doc.storage_path);
+        result = await extractText(bytes, doc.mime, doc.filename);
+      } catch (error) {
+        result = { state: "failed", text: null, error: String(error.message).slice(0, 300) };
+      }
+
+      await db.update("documents", `id=eq.${doc.id}`, {
+        text_content: result.text,
+        text_state: result.state,
+        text_error: result.error,
+        text_read_at: new Date().toISOString(),
+      });
+      if (result.state === "done") read++;
+    }
+
+    return send(200, { looked: pending?.length ?? 0, read });
+  }
+
+  /**
+   * Answering a question about one client's documents.
+   *
+   * The firm's key is looked up here from the membership and never sent, the
+   * same shape as the WhatsApp send. The documents are read with the service
+   * role, which is why the membership check above happens first.
+   */
+  async function askDocuments({ send, userId, payload }) {
+    let clientId, question;
+    try {
+      ({ clientId, question } = JSON.parse(payload));
+    } catch {
+      return send(400, { error: "Invalid JSON" });
+    }
+    if (!clientId || !question?.trim()) {
+      return send(400, { error: "clientId and question are required" });
+    }
+
+    const orgId = await memberOfClientOrg(userId, clientId);
+    if (!orgId) return send(403, { error: "Forbidden" });
+
+    const connection = await db.selectOne(
+      "ai_connections",
+      `org_id=eq.${orgId}&select=id,api_key,model`,
+    );
+    if (!connection) {
+      return send(409, { error: "חיפוש AI לא מופעל. הפעל אותו בהגדרות המשרד." });
+    }
+
+    try {
+      const rows = await db.select(
+        "documents",
+        `client_id=eq.${clientId}&deleted_at=is.null` +
+          "&select=id,bucket,storage_path,filename,mime,size_bytes,text_content" +
+          `&order=created_at.desc&limit=${LIMITS.documents}`,
+      );
+
+      // Only the pictures need fetching; anything with text already has it.
+      const documents = [];
+      for (const row of rows ?? []) {
+        let bytes = null;
+        if (!row.text_content && (row.size_bytes ?? 0) <= LIMITS.imageBytes) {
+          try {
+            bytes = await db.downloadObject(row.bucket, row.storage_path);
+          } catch {
+            bytes = null; // One unreadable file should not lose the answer.
+          }
+        }
+        documents.push({ ...row, bytes });
+      }
+
+      const { content, used } = buildContent({ question, documents });
+      if (used.length === 0) {
+        return send(409, { error: "אין מסמכים שניתן לקרוא עבור הלקוח הזה." });
+      }
+
+      const answer = await ask({
+        apiKey: connection.api_key,
+        model: connection.model,
+        content,
+      });
+
+      await db.update("ai_connections", `id=eq.${connection.id}`, {
+        last_ok_at: new Date().toISOString(),
+        last_error: null,
+        last_error_at: null,
+      });
+
+      return send(200, { answer, read: used });
+    } catch (error) {
+      console.error("ai search failed", error.message);
+      try {
+        await db.update("ai_connections", `org_id=eq.${orgId}`, {
+          last_error: error.message,
+          last_error_at: new Date().toISOString(),
+        });
+      } catch {
+        // The search already failed; failing to record why should not change
+        // what the caller is told.
+      }
+      return send(502, { error: error.message });
+    }
+  }
+
   /**
    * Sending one message from the firm's connected WhatsApp.
    *

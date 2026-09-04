@@ -7,6 +7,7 @@ import { listClientIntakes, type ClientIntake } from "@/lib/intake";
 import { listClientMilestones, type ClientMilestone } from "@/lib/payments";
 import { IntakePanel } from "@/components/intake-panel";
 import { ContactsPanel } from "@/components/contacts-panel";
+import { DocumentSearch } from "@/components/document-search";
 import { ClientPayments } from "@/components/payments-panel";
 import { ClientDocuments } from "@/components/client-documents";
 import { DeleteButton } from "@/components/delete-button";
@@ -140,6 +141,10 @@ export function ClientScreen({
           <ClientPayments rows={payments} onOpenMatter={onOpenMatter} />
 
           <ContactsPanel clientId={clientId} matters={matters} />
+
+          {/* Above the list, because a card with thirty files is exactly the
+              card where scrolling the list stops working. */}
+          {documents.length > 0 && <DocumentSearch clientId={clientId} />}
 
           <ClientDocuments
             orgId={membership?.org_id ?? ""}

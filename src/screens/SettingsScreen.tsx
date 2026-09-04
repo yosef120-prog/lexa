@@ -23,6 +23,7 @@ import {
 } from "@/lib/invitations";
 import { MfaPanel } from "@/components/mfa-panel";
 import { WhatsAppPanel } from "@/components/whatsapp-panel";
+import { AiPanel } from "@/components/ai-panel";
 import { ExportPanel } from "@/components/export-panel";
 import { Button, Card, ErrorNote, Field } from "@/components/ui";
 
@@ -146,6 +147,7 @@ export function SettingsScreen({ onClose }: { onClose: () => void }) {
       {isOwner && (
         <Section title="וואטסאפ">
           <WhatsAppPanel />
+          <AiPanel />
         </Section>
       )}
 
