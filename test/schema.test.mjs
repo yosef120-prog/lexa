@@ -2305,7 +2305,10 @@ check("the document holding most of the sentence comes first", sentence[0]?.file
 // Page two, where both "תשלום" and "שולם" appear, over page three where only
 // one does. The page offered is where most of the question is discussed.
 check("on the page most of the sentence appears", sentence[0]?.page, 2);
-check("saying how many words were searched for", sentence[0]?.asked, 5);
+// Four, not five: "מתי" is a question word that appears in no contract ever
+// written, and counting it would make three matches out of four read as three
+// out of five.
+check("counting only the words worth searching for", sentence[0]?.asked, 4);
 // Three of the four. "משולם" found "תשולם" through its stem, which is the
 // whole point of stripping prefixes; only "מתי" is genuinely absent. Showing
 // which words landed is what lets a searcher tell a strong hit from a weak one.
@@ -2368,6 +2371,27 @@ const stop = await asUser(UID_A, async () =>
   (await db.query(`select filename from public.search_client_documents('${clientA}', 'של את על')`)).rows.length,
 );
 check("a sentence of only common words finds nothing", stop, 0);
+
+// Found on a real card: a search for "מתי נמסרת החזקה ומה גובה התמורה" offered
+// a land registry extract, on the strength of "ומה" — "מה" wearing a vav,
+// which matched because "רשומה" contains those three letters. A stop word with
+// a prefix on it is still a stop word.
+const prefixedStop = await asUser(UID_A, async () =>
+  (await db.query(`select word from public.search_words('ומה שמה והמה')`)).rows.length,
+);
+check("a common word with a prefix is still ignored", prefixedStop, 0);
+
+// Two letters inside a Hebrew document match somewhere every time.
+const tiny = await asUser(UID_A, async () =>
+  (await db.query(`select word from public.search_words('בי גן')`)).rows.length,
+);
+check("and a two letter stem is not a search term", tiny, 0);
+
+// The words that carry meaning survive all of it.
+const kept = await asUser(UID_A, async () =>
+  (await db.query(`select word from public.search_words('מתי נמסרת החזקה ומה גובה התמורה') order by word`)).rows.map((r) => r.word),
+);
+check("while the real words are kept", kept, ["גובה", "החזקה", "התמורה", "נמסרת"]);
 
 console.log("\nschema · the firm's own AI key\n");
 
