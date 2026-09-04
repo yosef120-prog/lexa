@@ -107,6 +107,12 @@ export async function updateClient(
 const DELETE_TROUBLE: Record<string, string> = {
   NOT_FOUND: "הלקוח כבר נמחק.",
   FORBIDDEN: "רק בעלים או עורך דין יכולים למחוק לקוח.",
+  // The database refuses this deliberately — a client with a live file is not
+  // something to lose by accident. Until this line existed the refusal reached
+  // the screen as an untranslated database error, so a correct decision looked
+  // like a broken button.
+  HAS_OPEN_MATTERS: "ללקוח יש תיק פתוח. סגור או מחק את התיק, ואז אפשר למחוק אותו.",
+  NO_ORG: "אינך משויך למשרד. התחבר מחדש ונסה שוב.",
 };
 
 /**

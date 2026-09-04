@@ -2466,6 +2466,61 @@ await asUser(UID_B, async () => {
 });
 check("and another firm sees no connection at all", otherFirmAi, 0);
 
+console.log("\nschema · deleting a file stops it asking\n");
+
+const doomed = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.matters (org_id, client_id, name, created_by)
+    values ('${orgA}', '${clientA}', 'תיק שייסגר', '${UID_A}') returning id
+  `)).rows[0].id,
+);
+const doomedEvent = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.events (org_id, matter_id, title, starts_at, remind_at)
+    values ('${orgA}', '${doomed}', 'דיון הוכחות', now() + interval '30 days', now() + interval '27 days')
+    returning id
+  `)).rows[0].id,
+);
+const doomedTask = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.tasks (org_id, matter_id, title, created_by)
+    values ('${orgA}', '${doomed}', 'להכין תצהיר', '${UID_A}') returning id
+  `)).rows[0].id,
+);
+await asUser(UID_A, async () => {
+  await db.query(`
+    insert into public.payment_milestones (org_id, matter_id, label, amount, due_date)
+    values ('${orgA}', '${doomed}', 'תשלום', 1000, current_date + 20)
+  `);
+});
+
+await asUser(UID_A, async () => {
+  await db.query(`select public.soft_delete_matter('${doomed}')`);
+});
+
+// Asked outside the policy, which hides deleted rows and so cannot tell a
+// cancelled entry from one that never existed.
+const leftInDiary = (await db.query(`
+  select count(*)::int as n from public.events
+  where matter_id = '${doomed}' and deleted_at is null
+`)).rows[0].n;
+// Each of these would have kept its place in the diary and kept sending a
+// reminder about a file that no longer exists — and with the matter gone,
+// nothing left on the entry to say what the reminder was for.
+check("a deleted file takes its diary entries with it", leftInDiary, 0);
+
+const taskState = (await db.query(`
+  select status::text as s from public.tasks where id = '${doomedTask}'
+`)).rows[0].s;
+// Cancelled, not done. Nobody did it, and the enum has three values for a
+// reason.
+check("and its open tasks are cancelled rather than completed", taskState, "cancelled");
+
+const markedNotGone = (await db.query(`
+  select deleted_at is not null as gone from public.events where id = '${doomedEvent}'
+`)).rows[0].gone;
+check("the entry is marked, not destroyed", markedNotGone, true);
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 
 await db.close();
