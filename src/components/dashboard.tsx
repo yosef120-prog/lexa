@@ -102,6 +102,7 @@ export function Dashboard({ go }: { go: Go }) {
             <Card className="flex flex-col gap-0 p-0">
               {needs.map((r, i) => (
                 <button
+                  type="button"
                   key={r.label}
                   onClick={r.onClick}
                   className={`flex items-center gap-3 px-4 py-3 text-start hover:bg-ground ${
@@ -148,6 +149,7 @@ export function Dashboard({ go }: { go: Go }) {
               <Card className="flex flex-col gap-0 p-0">
                 {owed.map((intake, i) => (
                   <button
+                    type="button"
                     key={intake.id}
                     onClick={() => intake.client && go.client(intake.client.id)}
                     className={`flex flex-col gap-1.5 px-4 py-3 text-start hover:bg-ground ${
@@ -223,6 +225,7 @@ export function Dashboard({ go }: { go: Go }) {
 function Tile({ n, label, onClick }: { n: number; label: string; onClick: () => void }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className="flex flex-col rounded-lg border border-rule bg-surface p-4 text-start
                  transition-colors hover:border-brand/40 hover:bg-ground"

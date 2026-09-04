@@ -107,6 +107,7 @@ export function ReminderBanner({
             <span className="truncate">{a.form?.name}</span>
             {a.client && (
               <button
+                type="button"
                 onClick={() => onOpenClient(a.client!.id)}
                 className="font-semibold underline underline-offset-2"
               >
@@ -116,6 +117,7 @@ export function ReminderBanner({
             <span className="text-ink-soft">{relativeWhen(a.submitted_at)}</span>
           </div>
           <button
+            type="button"
             onClick={async () => {
               // Removed here rather than after a reload, so the row goes at the
               // moment of the click.
@@ -153,6 +155,7 @@ export function ReminderBanner({
             {e.location && <span className="text-ink-soft">· {e.location}</span>}
             {e.matter && (
               <button
+                type="button"
                 onClick={() => onOpenMatter(e.matter!.id)}
                 className="font-semibold underline underline-offset-2"
               >
@@ -162,6 +165,7 @@ export function ReminderBanner({
           </div>
 
           <button
+            type="button"
             onClick={() => dismiss(e.id)}
             aria-label="הסתר תזכורת"
             className="shrink-0 rounded px-2 py-1 text-sm font-semibold text-ink-soft hover:bg-ink/5"

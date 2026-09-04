@@ -164,6 +164,7 @@ export function IntakePanel({
 
           <CopyLink link={freshLink.url} />
           <button
+            type="button"
             onClick={() => setFreshLink(null)}
             className="self-start text-xs text-brand underline underline-offset-2"
           >
@@ -189,6 +190,7 @@ export function IntakePanel({
             ))}
           </div>
           <button
+            type="button"
             onClick={onEditForms}
             className="self-start text-xs text-ink-soft underline underline-offset-2 hover:text-ink"
           >
@@ -343,12 +345,14 @@ function IntakeRow({ intake, onChanged }: { intake: ClientIntake; onChanged: () 
           {live && (
             <>
               <button
+                type="button"
                 onClick={() => setShowLink((s) => !s)}
                 className="rounded px-2 py-1 text-xs font-semibold text-brand hover:bg-brand/10"
               >
                 {showLink ? "הסתר" : "קישור"}
               </button>
               <button
+                type="button"
                 onClick={revoke}
                 disabled={busy}
                 className="rounded px-2 py-1 text-xs font-semibold text-danger hover:bg-danger/10 disabled:opacity-50"
@@ -393,6 +397,7 @@ function IntakeRow({ intake, onChanged }: { intake: ClientIntake; onChanged: () 
 
       {/* Its own line and its own width, so it survives a phone. */}
       <button
+        type="button"
         onClick={toggle}
         aria-expanded={open}
         className="self-start rounded px-1 py-0.5 text-xs font-semibold text-brand hover:bg-brand/10"
@@ -467,6 +472,7 @@ function CopyLink({ link }: { link: string }) {
         {link}
       </code>
       <button
+        type="button"
         onClick={copy}
         className="shrink-0 rounded px-2 py-1 text-xs font-semibold text-brand hover:bg-brand/10"
       >

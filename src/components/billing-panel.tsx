@@ -208,6 +208,7 @@ function FeeSummary({
   return (
     <>
       <button
+        type="button"
         onClick={() => setEditing(true)}
         className="text-xs text-brand underline underline-offset-2"
       >

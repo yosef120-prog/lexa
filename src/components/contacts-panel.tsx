@@ -275,12 +275,14 @@ function ContactRow({
         {mine && !editing && (
           <>
             <button
+              type="button"
               onClick={() => setEditing(true)}
               className="text-brand underline underline-offset-2"
             >
               ערוך
             </button>
             <button
+              type="button"
               onClick={async () => {
                 await deleteContact(contact.id);
                 await onChanged();

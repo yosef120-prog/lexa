@@ -84,6 +84,7 @@ export function ClientsScreen({ onOpenClient }: { onOpenClient: (id: string) => 
                 <tr key={c.id} className="border-t border-rule">
                   <td className="p-3 font-semibold">
                     <button
+                      type="button"
                       onClick={() => onOpenClient(c.id)}
                       className="text-brand underline-offset-2 hover:underline"
                     >

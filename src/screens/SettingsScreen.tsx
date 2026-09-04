@@ -302,6 +302,7 @@ function FirmIdentity({ firm, onChanged }: { firm: Firm; onChanged: () => Promis
           </label>
           {url && (
             <button
+              type="button"
               onClick={async () => {
                 await removeLogo(firm.id);
                 await onChanged();
@@ -401,6 +402,7 @@ function MemberRow({
             </select>
             {!isMe && !confirming && (
               <button
+                type="button"
                 onClick={() => setConfirming(true)}
                 className="rounded px-2 py-1 text-xs font-semibold text-danger hover:bg-danger/10"
               >
@@ -426,6 +428,7 @@ function MemberRow({
           </p>
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={() => act(() => removeMember(m.user_id))}
               disabled={busy}
               className="rounded-md bg-danger px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-60"
@@ -433,6 +436,7 @@ function MemberRow({
               {busy ? "מסיר..." : "הסר מהמשרד"}
             </button>
             <button
+              type="button"
               onClick={() => setConfirming(false)}
               className="rounded-md px-3 py-1.5 text-sm font-semibold text-ink-soft hover:bg-rule/50"
             >
@@ -565,12 +569,14 @@ function InviteRow({ invite, onChanged }: { invite: Invitation; onChanged: () =>
         </div>
         <div className="flex shrink-0 gap-1">
           <button
+            type="button"
             onClick={() => setShown((s) => !s)}
             className="rounded px-2 py-1 text-xs font-semibold text-brand hover:bg-brand/10"
           >
             {shown ? "הסתר" : "קישור"}
           </button>
           <button
+            type="button"
             onClick={async () => {
               setBusy(true);
               setError(null);
@@ -614,6 +620,7 @@ function CopyLink({ link }: { link: string }) {
         {link}
       </code>
       <button
+        type="button"
         onClick={copy}
         className="shrink-0 rounded px-2 py-1 text-xs font-semibold text-brand hover:bg-brand/10"
       >

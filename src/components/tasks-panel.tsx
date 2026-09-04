@@ -72,6 +72,7 @@ export function TaskRow({
                 <span>·</span>
                 {onOpenMatter && task.matter_id ? (
                   <button
+                    type="button"
                     onClick={() => onOpenMatter(task.matter_id as string)}
                     className="underline underline-offset-2 hover:text-ink"
                   >
@@ -200,6 +201,7 @@ export function TasksPanel({
         <h2 className="font-bold">משימות</h2>
         {!adding && (
           <button
+            type="button"
             onClick={() => setAdding(true)}
             className="text-sm font-semibold text-brand underline underline-offset-2"
           >

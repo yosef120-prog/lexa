@@ -92,6 +92,7 @@ export function MattersScreen({
           {matters.map((m) => (
             <Card key={m.id} className="p-0">
               <button
+                type="button"
                 onClick={() => onOpenMatter(m.id)}
                 className="flex w-full items-start justify-between gap-4 p-4 text-start
                            transition-colors hover:bg-ground/60 sm:p-6"

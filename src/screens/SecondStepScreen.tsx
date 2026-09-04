@@ -72,6 +72,7 @@ export function SecondStepScreen({ onPassed }: { onPassed: () => void }) {
         {/* A way out that is not "give up and close the tab": someone on the
             wrong account, or without their phone, needs a door. */}
         <button
+          type="button"
           onClick={signOut}
           className="self-start text-sm text-muted underline underline-offset-2 hover:text-ink"
         >

@@ -224,6 +224,7 @@ function Open({ hit }: { hit: DocumentHit }) {
   return (
     <>
       <button
+        type="button"
         onClick={async () => {
           try {
             const url = await getDownloadUrl({

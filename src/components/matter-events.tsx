@@ -27,6 +27,7 @@ export function MatterEvents({
         <h2 className="font-bold">מועדים</h2>
         {!adding && (
           <button
+            type="button"
             onClick={() => setAdding(true)}
             className="text-sm font-semibold text-brand underline underline-offset-2"
           >

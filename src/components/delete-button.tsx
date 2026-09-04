@@ -11,6 +11,12 @@ import { ErrorNote } from "@/components/ui";
  * The confirmation is deliberately not a browser dialog. Those are dismissed
  * by reflex, they cannot say what is about to happen in the reader's language,
  * and they cannot be seen at the same time as the thing being deleted.
+ *
+ * Every button here declares type="button", and that is not a formality. A
+ * button inside a <form> with no type is a submit button, and this component
+ * is rendered inside the client edit form: without it, pressing "delete"
+ * saved the form and closed it, the confirmation never appeared, and deleting
+ * a client was impossible from the screen that offers it.
  */
 export function DeleteButton({
   label,
@@ -48,6 +54,7 @@ export function DeleteButton({
     return (
       <div className="flex flex-col gap-1">
         <button
+          type="button"
           onClick={() => setConfirming(true)}
           className={`rounded font-semibold text-danger hover:bg-danger/10 ${
             small ? "px-2 py-1 text-xs" : "px-3 py-1.5 text-sm"
@@ -67,6 +74,7 @@ export function DeleteButton({
       {error && <ErrorNote>{error}</ErrorNote>}
       <div className="flex gap-2">
         <button
+          type="button"
           onClick={go}
           disabled={busy}
           className="rounded-md bg-danger px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-60"
@@ -74,6 +82,7 @@ export function DeleteButton({
           {busy ? "מוחק..." : "מחק"}
         </button>
         <button
+          type="button"
           onClick={() => setConfirming(false)}
           disabled={busy}
           className="rounded-md px-3 py-1.5 text-sm font-semibold text-ink-soft hover:bg-rule/50"

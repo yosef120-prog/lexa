@@ -161,6 +161,7 @@ export function EventRow({
         </span>
         {event.matter && onOpenMatter && (
           <button
+            type="button"
             onClick={() => onOpenMatter(event.matter!.id)}
             className="self-start text-xs text-brand underline underline-offset-2"
           >
@@ -188,6 +189,7 @@ export function EventRow({
         </a>
         {onEdit && (
           <button
+            type="button"
             onClick={() => onEdit(event)}
             className="text-xs text-ink-soft underline underline-offset-2 hover:text-ink"
           >

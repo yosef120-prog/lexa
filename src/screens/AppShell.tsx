@@ -103,6 +103,7 @@ export function AppShell() {
               <span className="text-lg font-bold tracking-tight">LEXA</span>
             )}
             <button
+              type="button"
               onClick={() => {
                 setSettings(false);
                 go("team");
@@ -128,6 +129,7 @@ export function AppShell() {
                 Settings are rare enough that they must be findable without
                 being remembered. */}
             <button
+              type="button"
               onClick={() => setSettings(true)}
               aria-label="הגדרות המשרד"
               aria-current={settings ? "page" : undefined}
@@ -156,6 +158,7 @@ export function AppShell() {
         <nav className="hidden gap-1 px-6 sm:flex">
           {TABS.map((t) => (
             <button
+              type="button"
               key={t.id}
               onClick={() => go(t.id)}
               aria-current={tab === t.id ? "page" : undefined}
@@ -219,6 +222,7 @@ export function AppShell() {
       >
         {TABS.map((t) => (
           <button
+            type="button"
             key={t.id}
             onClick={() => go(t.id)}
             aria-current={tab === t.id ? "page" : undefined}

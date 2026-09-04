@@ -137,6 +137,7 @@ export function IntakeBuilder() {
             <div className="flex flex-wrap gap-1.5">
               {forms.map((f) => (
                 <button
+                  type="button"
                   key={f.id}
                   onClick={() => setSelected(f.id)}
                   className={`rounded-md px-2.5 py-1 text-xs font-semibold ${
@@ -234,6 +235,7 @@ export function IntakeBuilder() {
           ) : (
             <div className="flex flex-wrap items-center gap-3">
               <button
+                type="button"
                 onClick={() => {
                   setAdding(true);
                   setEditingId(null);
@@ -243,6 +245,7 @@ export function IntakeBuilder() {
                 הוסף שאלה
               </button>
               <button
+                type="button"
                 onClick={() => setEditingForm(true)}
                 className="text-sm text-ink-soft underline underline-offset-2 hover:text-ink"
               >
@@ -252,6 +255,7 @@ export function IntakeBuilder() {
                   questionnaires, not one that tries to be both. */}
               {TEMPLATES.filter((t) => !forms.some((f) => f.name === t.name)).map((t) => (
                 <button
+                  type="button"
                   key={t.key}
                   onClick={() => createFrom(t)}
                   disabled={busy}
@@ -343,12 +347,14 @@ function QuestionRow({
           }}
         />
         <button
+          type="button"
           onClick={onEdit}
           className="rounded px-2 py-1 text-xs font-semibold text-brand hover:bg-brand/10"
         >
           ערוך
         </button>
         <button
+          type="button"
           onClick={async () => {
             await removeQuestion(q.id);
             await onChanged();
@@ -375,6 +381,7 @@ function Move({
   const [busy, setBusy] = useState(false);
   return (
     <button
+      type="button"
       aria-label={up ? "העבר למעלה" : "העבר למטה"}
       disabled={disabled || busy}
       onClick={async () => {

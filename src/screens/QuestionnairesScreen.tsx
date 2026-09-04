@@ -165,6 +165,7 @@ function Row({
           </span>
           {intake.client && (
             <button
+              type="button"
               onClick={() => onOpenClient(intake.client!.id)}
               className="truncate text-sm font-semibold underline-offset-2 hover:underline"
             >
@@ -177,6 +178,7 @@ function Row({
         <div className="flex shrink-0 gap-1">
           {intake.status === "submitted" && (
             <button
+              type="button"
               onClick={() => act(() => markIntakeReviewed(intake.id))}
               disabled={busy}
               className="rounded px-2 py-1 text-xs font-semibold text-ink-soft hover:bg-rule/50 disabled:opacity-50"
@@ -187,12 +189,14 @@ function Row({
           {live && (
             <>
               <button
+                type="button"
                 onClick={() => setShowLink((s) => !s)}
                 className="rounded px-2 py-1 text-xs font-semibold text-brand hover:bg-brand/10"
               >
                 {showLink ? "הסתר" : "קישור"}
               </button>
               <button
+                type="button"
                 onClick={() => act(() => revokeIntake(intake.id))}
                 disabled={busy}
                 className="rounded px-2 py-1 text-xs font-semibold text-danger hover:bg-danger/10 disabled:opacity-50"
@@ -262,6 +266,7 @@ function CopyLink({ link }: { link: string }) {
         {link}
       </code>
       <button
+        type="button"
         onClick={copy}
         className="shrink-0 rounded px-2 py-1 text-xs font-semibold text-brand hover:bg-brand/10"
       >

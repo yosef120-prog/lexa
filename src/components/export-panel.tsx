@@ -81,6 +81,7 @@ export function ExportPanel() {
                 const rows = data.tables[table] ?? [];
                 return (
                   <button
+                    type="button"
                     key={table}
                     onClick={() => downloadCsv(rows, table, firmName)}
                     disabled={rows.length === 0}

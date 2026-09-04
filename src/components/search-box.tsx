@@ -91,6 +91,7 @@ export function SearchBox({
               {hits.map((hit) => (
                 <li key={`${hit.kind}-${hit.id}`}>
                   <button
+                    type="button"
                     onClick={() => choose(hit)}
                     className="flex w-full flex-col items-start gap-0.5 border-b border-rule px-3
                                py-2.5 text-start last:border-0 hover:bg-ground"

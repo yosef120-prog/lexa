@@ -180,6 +180,7 @@ export function AuthScreen() {
         <p className="text-center text-sm text-ink-soft">
           {mode === "signup" ? "כבר יש לך חשבון?" : "אין לך עדיין חשבון?"}{" "}
           <button
+            type="button"
             className="font-semibold text-brand underline underline-offset-2"
             onClick={() => { setMode(mode === "signup" ? "signin" : "signup"); setError(null); }}
           >

@@ -94,6 +94,7 @@ function DocRow({ group, onChanged }: { group: DocumentGroup; onChanged: () => v
     <li className="flex flex-col gap-1 py-2.5">
       <div className="flex items-baseline justify-between gap-3">
         <button
+          type="button"
           onClick={() => open(latest)}
           className="min-w-0 flex-1 truncate text-start text-sm font-semibold text-brand underline underline-offset-2"
         >

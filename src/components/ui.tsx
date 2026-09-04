@@ -15,7 +15,7 @@ export function Button({
       ? "bg-brand text-white hover:bg-brand-dark"
       : "text-ink-soft hover:bg-rule/50";
   return (
-    <button className={`${base} ${look} ${className}`} {...rest}>
+    <button type="button" className={`${base} ${look} ${className}`} {...rest}>
       {children}
     </button>
   );

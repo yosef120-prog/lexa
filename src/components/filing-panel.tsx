@@ -67,6 +67,7 @@ export function FilingPanel({
         <h2 className="font-bold">הגשה לבית משפט</h2>
         {!creating && latest.length > 0 && (
           <button
+            type="button"
             onClick={() => setCreating(true)}
             className="text-sm font-semibold text-brand underline underline-offset-2"
           >
@@ -198,6 +199,7 @@ function BundleView({
             {bundle.status === "draft" && (
               <span className="flex shrink-0 gap-1 text-xs">
                 <button
+                  type="button"
                   disabled={busy || i === 0}
                   onClick={() => run(() => moveAppendix(bundle.items, item.id, -1))}
                   className="text-ink-soft disabled:opacity-30"
@@ -206,6 +208,7 @@ function BundleView({
                   ▲
                 </button>
                 <button
+                  type="button"
                   disabled={busy || i === bundle.items.length - 1}
                   onClick={() => run(() => moveAppendix(bundle.items, item.id, 1))}
                   className="text-ink-soft disabled:opacity-30"
@@ -214,6 +217,7 @@ function BundleView({
                   ▼
                 </button>
                 <button
+                  type="button"
                   disabled={busy}
                   onClick={() => run(() => removeAppendix(item.id))}
                   className="text-danger"
@@ -316,6 +320,7 @@ function BundleView({
         </div>
       ) : (
         <button
+          type="button"
           onClick={() => setFiling(true)}
           className="self-start text-xs text-brand underline underline-offset-2"
         >

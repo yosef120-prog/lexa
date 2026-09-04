@@ -110,6 +110,7 @@ export function ClientScreen({
                 one control here. Deleting lives inside it, two steps away
                 rather than beside the phone number. */}
             <button
+              type="button"
               onClick={() => setEditing(true)}
               className="shrink-0 rounded px-2 py-1 text-sm font-semibold text-brand hover:bg-brand/10"
             >
@@ -164,6 +165,7 @@ export function ClientScreen({
                 {matters.map((m) => (
                   <li key={m.id} className="py-2">
                     <button
+                      type="button"
                       onClick={() => onOpenMatter(m.id)}
                       className="flex w-full items-baseline gap-2 text-start"
                     >

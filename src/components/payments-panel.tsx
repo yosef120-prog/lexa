@@ -153,6 +153,7 @@ function MilestoneRow({
 
       <div className="flex flex-wrap gap-x-3 text-xs">
         <button
+          type="button"
           disabled={busy}
           onClick={() =>
             act(() => setPaid(m.id, m.paid_at ? null : new Date().toISOString().slice(0, 10)))
@@ -162,12 +163,14 @@ function MilestoneRow({
           {m.paid_at ? "בטל סימון תשלום" : "סמן כשולם"}
         </button>
         <button
+          type="button"
           onClick={() => setEditing(true)}
           className="text-ink-soft underline underline-offset-2"
         >
           ערוך
         </button>
         <button
+          type="button"
           disabled={busy}
           onClick={() => act(() => removeMilestone(m.id))}
           className="text-danger underline underline-offset-2 disabled:opacity-50"
@@ -320,6 +323,7 @@ export function ClientPayments({
                 </span>
                 {m.paid_at && <span className="font-semibold text-brand">שולם</span>}
                 <button
+                  type="button"
                   onClick={() => onOpenMatter(m.matter_id)}
                   className="text-muted underline underline-offset-2"
                 >

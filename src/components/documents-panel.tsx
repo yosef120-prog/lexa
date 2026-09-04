@@ -82,6 +82,7 @@ export function DocumentsPanel({
 
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                 <button
+                  type="button"
                   onClick={() => pick(g.version_group_id)}
                   disabled={busy}
                   className="font-semibold text-brand underline underline-offset-2"
@@ -90,6 +91,7 @@ export function DocumentsPanel({
                 </button>
                 {g.older.length > 0 && (
                   <button
+                    type="button"
                     onClick={() =>
                       setExpanded(expanded === g.version_group_id ? null : g.version_group_id)
                     }
@@ -155,6 +157,7 @@ function DocumentLine({
   return (
     <div className="flex items-baseline justify-between gap-3">
       <button
+        type="button"
         onClick={open}
         disabled={opening}
         className={`text-start font-semibold underline underline-offset-2 ${

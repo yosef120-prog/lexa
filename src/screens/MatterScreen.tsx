@@ -208,6 +208,7 @@ function MatterHeader({
         <span className="text-sm text-ink-soft">סטטוס:</span>
         {(["open", "on_hold", "closed"] as const).map((s) => (
           <button
+            type="button"
             key={s}
             disabled={busy || matter.status === s}
             onClick={() => change(s)}
@@ -393,6 +394,7 @@ function Parties({
         <h2 className="font-bold">צדדים</h2>
         {!adding && (
           <button
+            type="button"
             onClick={() => setAdding(true)}
             className="text-sm font-semibold text-brand underline underline-offset-2"
           >

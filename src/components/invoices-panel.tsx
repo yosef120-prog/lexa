@@ -137,7 +137,7 @@ function InvoiceRow({ invoice, onChanged }: { invoice: Invoice; onChanged: () =>
 
   return (
     <li className="flex flex-col gap-1.5 py-2.5">
-      <button onClick={expand} className="flex items-baseline justify-between gap-2 text-start">
+      <button type="button" onClick={expand} className="flex items-baseline justify-between gap-2 text-start">
         <span className="flex items-baseline gap-2">
           <span className="font-mono text-xs text-muted">#{invoice.number}</span>
           <span className={`rounded px-1.5 py-0.5 text-xs font-semibold ${STATUS_LOOK[invoice.status]}`}>
@@ -335,6 +335,7 @@ function Small({
 }: React.ButtonHTMLAttributes<HTMLButtonElement> & { danger?: boolean }) {
   return (
     <button
+      type="button"
       className={`rounded px-2 py-1 text-xs font-semibold disabled:opacity-50 ${
         danger ? "text-danger hover:bg-danger/10" : "text-brand hover:bg-brand/10"
       }`}

@@ -210,6 +210,7 @@ function FactorRow({ factor, onChanged }: { factor: Factor; onChanged: () => voi
         </div>
         {!confirming && (
           <button
+            type="button"
             onClick={() => setConfirming(true)}
             className="rounded px-2 py-1 text-xs font-semibold text-danger hover:bg-danger/10"
           >
