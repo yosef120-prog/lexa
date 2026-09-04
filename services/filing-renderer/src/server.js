@@ -292,6 +292,7 @@ createServer(async (req, res) => {
 
       await db.update("documents", `id=eq.${doc.id}`, {
         text_content: result.text,
+        text_pages: result.pages,
         text_state: result.state,
         text_error: result.error,
         text_read_at: new Date().toISOString(),

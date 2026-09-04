@@ -97,14 +97,16 @@ export function DocumentSearch({ clientId }: { clientId: string }) {
         <input
           value={term}
           onChange={(e) => setTerm(e.target.value)}
-          placeholder={mode === "plain" ? "מילה שמופיעה במסמך" : "שאלה על המסמכים של הלקוח"}
+          placeholder={
+            mode === "plain" ? "מילה, או משפט שלם" : "שאלה על המסמכים של הלקוח"
+          }
           className="w-full rounded-md border border-rule bg-surface px-3 py-2.5 text-base outline-none
                      focus:border-brand focus:ring-2 focus:ring-brand/20"
         />
 
         {mode === "plain" ? (
           <p className="text-xs text-muted">
-            מחפש את המילה כפי שהקלדת, בשם הקובץ ובתוכן שלו.
+            אפשר מילה אחת או משפט. במשפט, מסמך שמכיל יותר מהמילים יופיע ראשון, ומוצג באיזה עמוד.
             {blind && (
               // Said before the search, not after it comes back empty. A firm
               // that searches a photograph and finds nothing concludes the
@@ -178,9 +180,35 @@ function PlainResults({ hits }: { hits: DocumentHit[] }) {
       {hits.map((h) => (
         <li key={h.id} className="flex flex-col gap-1 py-2.5">
           <Open hit={h} />
-          <span className="text-xs text-muted">
-            {h.where_found === "filename" ? "נמצא בשם הקובץ" : "נמצא בתוך המסמך"}
+
+          <span className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted">
+            {/* Where in the file, not just which file. "It is in the contract"
+                is not an answer when the contract runs to forty pages. */}
+            {h.page !== null && (
+              <span className="font-semibold text-ink-soft">
+                עמוד {h.page}
+                {h.pages !== null && h.pages > 1 && ` מתוך ${h.pages}`}
+              </span>
+            )}
+            <span>{h.where_found === "filename" ? "נמצא בשם הקובץ" : "נמצא בתוך המסמך"}</span>
           </span>
+
+          {/* Which of the words landed. On a sentence this is the difference
+              between a document that answers the question and one that happens
+              to share a word with it. */}
+          {h.asked > 1 && h.matched && (
+            <span className="flex flex-wrap items-baseline gap-1 text-xs">
+              <span className="text-muted">
+                {h.matched.length} מתוך {h.asked} מילים:
+              </span>
+              {h.matched.map((w) => (
+                <span key={w} className="rounded bg-brand/10 px-1.5 py-0.5 font-semibold text-brand">
+                  {w}
+                </span>
+              ))}
+            </span>
+          )}
+
           {/* The words around the hit, so the firm can see why this file came
               back without opening it. */}
           {h.snippet && <p className="rounded-md bg-ground p-2 text-xs leading-relaxed">{h.snippet}</p>}

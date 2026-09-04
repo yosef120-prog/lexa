@@ -4,10 +4,10 @@ import { describeDbError } from "@/lib/errors";
 /**
  * Searching a client's documents, two ways.
  *
- * The plain search matches the letters somebody typed against text already
- * pulled out of the files. It is free, instant, and finds exactly what is
- * there — and it cannot see a photograph at all, because a photograph has no
- * text to match.
+ * The plain search takes a word or a whole sentence and matches it against
+ * text already pulled out of the files, page by page. It is free and instant,
+ * and it cannot see a photograph at all, because a photograph has no text to
+ * match.
  *
  * The AI search reads the files, pictures included, and answers a question
  * about them. It costs the firm money per question, so it exists only once a
@@ -22,6 +22,12 @@ export type DocumentHit = {
   storage_path: string;
   created_at: string;
   where_found: "filename" | "content";
+  /** Which page the words are on, when the file has pages at all. */
+  page: number | null;
+  pages: number | null;
+  /** Which of the searched words this document actually contains. */
+  matched: string[] | null;
+  asked: number;
   snippet: string | null;
 };
 

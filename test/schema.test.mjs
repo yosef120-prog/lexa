@@ -2228,13 +2228,15 @@ console.log("\nschema · searching inside the documents\n");
 await asUser(UID_A, async () => {
   await db.query(`
     insert into public.documents
-      (org_id, client_id, storage_path, filename, mime, text_content, text_state)
+      (org_id, client_id, storage_path, filename, mime, text_content, text_pages, text_state)
     values
       ('${orgA}', '${clientA}', 'x/1', 'נסח טאבו.pdf', 'application/pdf',
-       'לשכת רישום המקרקעין. הנכס רשום על שם המוכר. אין שעבודים.', 'done'),
+       'לשכת רישום המקרקעין. הנכס רשום על שם המוכר. אין שעבודים.',
+       '["לשכת רישום המקרקעין.", "הנכס רשום על שם המוכר. אין שעבודים."]'::jsonb, 'done'),
       ('${orgA}', '${clientA}', 'x/2', 'הסכם מכר.pdf', 'application/pdf',
-       'התמורה תשולם בשלושה תשלומים. התשלום הראשון במעמד החתימה.', 'done'),
-      ('${orgA}', '${clientA}', 'x/3', 'תמונה.jpg', 'image/jpeg', null, 'no_text')
+       'התמורה תשולם בשלושה תשלומים. התשלום הראשון במעמד החתימה.',
+       '["מבוא והגדרות.", "התמורה תשולם בשלושה תשלומים.", "התשלום הראשון במעמד החתימה."]'::jsonb, 'done'),
+      ('${orgA}', '${clientA}', 'x/3', 'תמונה.jpg', 'image/jpeg', null, null, 'no_text')
   `);
 });
 
@@ -2274,6 +2276,98 @@ await asUser(UID_B, async () => {
 // The function runs as the caller, so row level security answers this rather
 // than a filter the function could have forgotten.
 check("another firm searching the same client finds nothing", docOutsiderFound, 0);
+
+// Which page, because "it is in the contract" is not an answer when the
+// contract runs to forty pages.
+const paged = await asUser(UID_A, async () =>
+  (await db.query(`select filename, page, pages from public.search_client_documents('${clientA}', 'החתימה')`)).rows[0],
+);
+check("a hit names the page it is on", paged.page, 3);
+check("and how many pages there are, so it reads as 3 of 3", paged.pages, 3);
+
+const earlier = await asUser(UID_A, async () =>
+  (await db.query(`select page from public.search_client_documents('${clientA}', 'שעבודים')`)).rows[0],
+);
+check("a hit on a different page says so", earlier.page, 2);
+
+console.log("\nschema · searching a whole sentence\n");
+
+// The case this was built for: a lawyer thinks in a question, not in a keyword,
+// and guessing the wrong single word looks exactly like the document not
+// existing.
+const sentence = await asUser(UID_A, async () =>
+  (await db.query(`
+    select filename, page, matched, asked
+    from public.search_client_documents('${clientA}', 'מתי משולם התשלום הראשון ובמקרקעין')
+  `)).rows,
+);
+check("the document holding most of the sentence comes first", sentence[0]?.filename, "הסכם מכר.pdf");
+// Page two, where both "תשלום" and "שולם" appear, over page three where only
+// one does. The page offered is where most of the question is discussed.
+check("on the page most of the sentence appears", sentence[0]?.page, 2);
+check("saying how many words were searched for", sentence[0]?.asked, 5);
+// Three of the four. "משולם" found "תשולם" through its stem, which is the
+// whole point of stripping prefixes; only "מתי" is genuinely absent. Showing
+// which words landed is what lets a searcher tell a strong hit from a weak one.
+check("and which of them were found", [...sentence[0].matched].sort(), ["הראשון", "התשלום", "משולם"]);
+
+// Ranking, not filtering. A document with one of the words is still worth
+// offering after the one with two.
+check("a weaker match still appears, below", sentence.length > 1, true);
+check(
+  "with fewer words matched",
+  sentence[1].matched.length < sentence[0].matched.length,
+  true,
+);
+
+console.log("\nschema · hebrew prefixes\n");
+
+// Substring matching already goes one way: חוזה is inside בחוזה. This is the
+// other way, which is the direction a person typing a sentence actually hits.
+const prefixed2 = await asUser(UID_A, async () =>
+  (await db.query(`select filename from public.search_client_documents('${clientA}', 'ובמקרקעין')`)).rows,
+);
+check("a word typed with prefixes finds the bare word", prefixed2[0]?.filename, "נסח טאבו.pdf");
+
+check(
+  "stripping stops before the word disappears",
+  (await db.query(`select public.hebrew_stem('מכר') as s`)).rows[0].s,
+  "מכר",
+);
+check(
+  "and takes off at most two",
+  (await db.query(`select public.hebrew_stem('וההסכמים') as s`)).rows[0].s,
+  "הסכמים",
+);
+
+// The bound is four characters, not three. It was three until "משולם" came
+// back as "ולם" — a fragment that sits inside עולם, אולם and שולם alike, and
+// would have quietly turned a search for one word into a search for a
+// syllable.
+check(
+  "and stops before the stem becomes a syllable",
+  (await db.query(`select public.hebrew_stem('משולם') as s`)).rows[0].s,
+  "שולם",
+);
+
+// ך ם ן ף ץ are the same letters as כ מ נ פ צ, written differently because
+// they end a word — and different characters entirely to a substring search.
+// Without folding them, "תשלום" does not find "תשלומים", which is every plural
+// and every suffix in the language.
+const folded = await asUser(UID_A, async () =>
+  (await db.query(`
+    select filename, page from public.search_client_documents('${clientA}', 'תשלום')
+  `)).rows[0],
+);
+check("a word ending in a final letter finds its plural", folded?.filename, "הסכם מכר.pdf");
+check("on the page the plural is on", folded?.page, 2);
+
+// A query of nothing but common words would otherwise match every document
+// and rank by nothing at all.
+const stop = await asUser(UID_A, async () =>
+  (await db.query(`select filename from public.search_client_documents('${clientA}', 'של את על')`)).rows.length,
+);
+check("a sentence of only common words finds nothing", stop, 0);
 
 console.log("\nschema · the firm's own AI key\n");
 

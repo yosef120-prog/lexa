@@ -58,5 +58,23 @@ const pdf = await extractText(await doc.save(), "application/pdf", "x.pdf");
 check("a pdf is read", pdf.state, "done");
 check("and it is the words on the page, not the metadata", pdf.text, "Payment schedule clause seventeen");
 
+// Per page, because the page number is the whole point of asking. "It is in
+// the contract" is not an answer when the contract runs to forty pages.
+const two = await PDFDocument.create();
+const f2 = await two.embedFont(StandardFonts.Helvetica);
+two.addPage([400,300]).drawText("First page recitals", { x:40, y:200, size:14, font:f2 });
+two.addPage([400,300]).drawText("Second page payment terms", { x:40, y:200, size:14, font:f2 });
+const multi = await extractText(await two.save(), "application/pdf", "x.pdf");
+check("a two page pdf comes back as two pages", multi.pages.length, 2);
+check("in order", multi.pages[0], "First page recitals");
+check("each holding its own words", multi.pages[1], "Second page payment terms");
+// The joined blob is kept as well: the AI search wants one document, not a list.
+check("and joined for whatever wants one blob", multi.text.includes("First page recitals"), true);
+
+// A word document has no pages until something lays it out. Saying "page 1 of
+// 1" is honest; inventing page numbers by counting characters would not be.
+check("a word document is one page", d.pages.length, 1);
+check("a photograph has no pages at all", img.pages, null);
+
 console.log(`\n${c-f}/${c} checks passed\n`);
 process.exit(f===0?0:1);
