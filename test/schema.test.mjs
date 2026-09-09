@@ -2617,47 +2617,71 @@ const afterAdd = (await db.query(`
 `)).rows[0].v;
 check("and adding one leaves the condition where it was", afterAdd, "מושכרת לדייר");
 
-// A dependent question stranded at the bottom of the form. The builder draws
-// it nested, but the client is asked in position order and has no indentation
-// to read: the answer that decides the question would come long after it.
+// Nothing may separate a dependent question from the one it hangs off. Not the
+// arrows, not an edit, not a direct write — the order is kept by the database,
+// so a screen that draws it nested is drawing something true.
 await asUser(UID_A, async () => {
   await db.query(`
     insert into public.intake_questions (org_id, form_id, position, type, label)
     values ('${orgA}', '${condForm}', 3, 'text', 'שאלה שאחריה'),
            ('${orgA}', '${condForm}', 4, 'text', 'ועוד אחת')
   `);
-  await db.query(`
-    update public.intake_questions set position = 5
-    where form_id = '${condForm}' and depends_on_question_id = '${parentQ}'
-  `);
-  await db.query(`select public.tidy_question_order('${condForm}')`);
 });
 
-const tidied = await asUser(UID_A, async () =>
+// Pushed to the bottom of the form, as far from its parent as it can go.
+await asUser(UID_A, async () => {
+  await db.query(`
+    update public.intake_questions set position = 9
+    where form_id = '${condForm}' and depends_on_question_id = '${parentQ}'
+  `);
+});
+
+const held = await asUser(UID_A, async () =>
   (await db.query(`
     select label from public.intake_questions
     where form_id = '${condForm}' order by position
   `)).rows.map((r) => r.label),
 );
-check("a dependent question is pulled up under its parent", tidied, [
+// Straight back under its parent. The client is asked in this order and has no
+// indentation to read, so a question sitting six rows below the answer that
+// decides it is a question asked of the wrong people.
+check("a dependent question cannot be moved away from its parent", held, [
   "האם הדירה מושכרת?",
   "נא לצרף חוזה שכירות",
   "שאלה שאחריה",
   "ועוד אחת",
 ]);
 
-// Running it again changes nothing — the arrangement is already the one it
-// produces, and a tidy that shuffled on every call would fight the arrows.
-await asUser(UID_A, async () => {
-  await db.query(`select public.tidy_question_order('${condForm}')`);
-});
-const again = await asUser(UID_A, async () =>
-  (await db.query(`
-    select label from public.intake_questions
-    where form_id = '${condForm}' order by position
-  `)).rows.map((r) => r.label),
+const settled = await asUser(UID_A, async () =>
+  (await db.query(`select public.questions_are_tidy('${condForm}') as t`)).rows[0].t,
 );
-check("and tidying twice leaves it alone", again, tidied);
+check("and the form reports itself in order", settled, true);
+
+// Removing the parent would set depends_on_question_id to null and quietly
+// promote the question: one written for tenants becomes one every client is
+// asked. Deleting it instead would throw away work. So the firm is asked to
+// decide.
+let refused = "";
+await asUser(UID_A, async () => {
+  try {
+    await db.query(`delete from public.intake_questions where id = '${parentQ}'`);
+    refused = "allowed";
+  } catch (e) {
+    refused = e.message.includes("HAS_DEPENDENT_QUESTIONS") ? "refused" : e.message;
+  }
+});
+check("a question others hang off cannot simply be removed", refused, "refused");
+
+// The dependent one goes freely; nothing hangs off it.
+let childGone = "";
+await asUser(UID_A, async () => {
+  await db.query(`
+    delete from public.intake_questions
+    where form_id = '${condForm}' and depends_on_question_id = '${parentQ}'
+  `);
+  childGone = "ok";
+});
+check("and once it is gone the parent can be too", childGone, "ok");
 
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 

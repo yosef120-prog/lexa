@@ -238,9 +238,22 @@ export async function updateForm(
   if (error) throw new Error(describeDbError(error));
 }
 
+/** What the database refuses, said in a way that names the next step. */
+const QUESTION_TROUBLE: Record<string, string> = {
+  // Removing it would set the condition on every question hanging off it to
+  // null, quietly turning a question written for some clients into one every
+  // client is asked. Deleting those too would throw away work nobody asked to
+  // lose, so the choice is handed back.
+  HAS_DEPENDENT_QUESTIONS:
+    "יש שאלות שתלויות בתשובה לשאלה הזו. הסר אותן קודם, או שנה במה הן תלויות.",
+};
+
 export async function removeQuestion(id: string): Promise<void> {
   const { error } = await supabase.from("intake_questions").delete().eq("id", id);
-  if (error) throw new Error(describeDbError(error));
+  if (error) {
+    const named = Object.keys(QUESTION_TROUBLE).find((k) => error.message.includes(k));
+    throw new Error(named ? QUESTION_TROUBLE[named] : describeDbError(error));
+  }
 }
 
 // ------------------------------------------------------------------ sending

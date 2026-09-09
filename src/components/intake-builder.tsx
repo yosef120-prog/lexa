@@ -366,6 +366,8 @@ function QuestionRow({
   onAddChild: () => void;
   onChanged: () => Promise<void>;
 }) {
+  const [removeError, setRemoveError] = useState<string | null>(null);
+
   const parent = all.find((p) => p.id === q.depends_on_question_id);
   const children = all.filter((c) => c.depends_on_question_id === q.id);
 
@@ -446,6 +448,11 @@ function QuestionRow({
               פתח אותה ובחר תשובה קיימת.
             </span>
           )}
+          {removeError && (
+            <span className="mt-0.5 rounded bg-danger/10 px-1.5 py-0.5 text-xs font-semibold text-danger">
+              {removeError}
+            </span>
+          )}
           {parentIsLater && (
             <span className="mt-0.5 rounded bg-danger/10 px-1.5 py-0.5 text-xs font-semibold text-danger">
               השאלה שהיא תלויה בה מופיעה אחריה — היא לעולם לא תוצג ללקוח. הזז אותה למטה, או
@@ -503,8 +510,16 @@ function QuestionRow({
         <button
           type="button"
           onClick={async () => {
-            await removeQuestion(q.id);
-            await onChanged();
+            // The database refuses to remove a question others hang off. A
+            // refusal nobody sees is a button that looks broken, which is a
+            // mistake this codebase has made before.
+            try {
+              setRemoveError(null);
+              await removeQuestion(q.id);
+              await onChanged();
+            } catch (e) {
+              setRemoveError(e instanceof Error ? e.message : String(e));
+            }
           }}
           className="rounded px-2 py-1 text-xs font-semibold text-danger hover:bg-danger/10"
         >
