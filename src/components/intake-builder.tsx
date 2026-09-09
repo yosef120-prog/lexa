@@ -8,6 +8,7 @@ import {
   QUESTION_TYPE_LABEL,
   removeQuestion,
   orderForCondition,
+  placeUnderParent,
   reorderQuestions,
   swapQuestions,
   updateForm,
@@ -29,6 +30,10 @@ export function IntakeBuilder() {
   const [forms, setForms] = useState<IntakeForm[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [questions, setQuestions] = useState<IntakeQuestion[]>([]);
+  // Which question a new dependent one is being written under. A firm thinks
+  // "if they say rented, I need the tenancy agreement" — starting from the
+  // answer — so this is the direction the screen offers.
+  const [childOf, setChildOf] = useState<string | null>(null);
 
   // What a client is actually asked in order. A dependent question is not a
   // step of its own — it belongs to the one it hangs off — so it takes no
@@ -207,17 +212,67 @@ export function IntakeBuilder() {
                     onCancel={() => setEditingId(null)}
                   />
                 ) : (
-                  <QuestionRow
-                    question={q}
-                    index={i}
-                    number={numbering[i]}
-                    all={questions}
-                    onEdit={() => {
-                      setEditingId(q.id);
-                      setAdding(false);
-                    }}
-                    onChanged={reload}
-                  />
+                  <>
+                    <QuestionRow
+                      question={q}
+                      index={i}
+                      number={numbering[i]}
+                      all={questions}
+                      onEdit={() => {
+                        setEditingId(q.id);
+                        setAdding(false);
+                        setChildOf(null);
+                      }}
+                      onAddChild={() => {
+                        setChildOf(q.id);
+                        setEditingId(null);
+                        setAdding(false);
+                      }}
+                      onChanged={reload}
+                    />
+
+                    {/* Written where it will live, with the condition already
+                        pointing at the question above it — the answer is the
+                        only thing left to choose. */}
+                    {childOf === q.id && (
+                      <div className="mt-2 border-s-2 border-brand/30 bg-brand/5 ps-3">
+                        <p className="pt-2 text-xs font-semibold text-brand">
+                          שאלה שתוצג רק לפי התשובה ל״{q.label}״
+                        </p>
+                        <QuestionEditor
+                          draft={{ ...EMPTY_DRAFT, depends_on_question_id: q.id }}
+                          earlier={questions}
+                          saveLabel="הוסף"
+                          onSave={async (d: QuestionDraft) => {
+                            const id = await addQuestion({
+                              org_id: membership?.org_id ?? "",
+                              form_id: selected ?? "",
+                              position: questions.length + 1,
+                              type: d.type,
+                              label: d.label,
+                              help: d.help,
+                              body: d.body,
+                              required: d.required,
+                              options: d.options,
+                            });
+                            await updateQuestion(id, d);
+
+                            // It was added last, as every question is. This is
+                            // what puts it under the one it belongs to.
+                            const parentId = d.depends_on_question_id;
+                            if (parentId) {
+                              const fresh = await listQuestions(selected ?? "");
+                              const placed = placeUnderParent(fresh, id, parentId);
+                              if (placed) await reorderQuestions(placed);
+                            }
+                            setChildOf(null);
+                            await reload();
+                          }}
+                          onCancel={() => setChildOf(null)}
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
               </li>
             ))}
@@ -298,6 +353,7 @@ function QuestionRow({
   number,
   all,
   onEdit,
+  onAddChild,
   onChanged,
 }: {
   question: IntakeQuestion;
@@ -306,6 +362,8 @@ function QuestionRow({
   number: number | null;
   all: IntakeQuestion[];
   onEdit: () => void;
+  /** Offered only on a question that has answers to hang one off. */
+  onAddChild: () => void;
   onChanged: () => Promise<void>;
 }) {
   const parent = all.find((p) => p.id === q.depends_on_question_id);
@@ -322,6 +380,13 @@ function QuestionRow({
   // the database could not follow, such as a reorder — leaves the condition
   // pointing at nothing. It then matches nobody, and the question it guards is
   // never shown again. Silently, which is the part worth catching.
+  // Only a question with answers can have one hang off it. There is nothing
+  // to condition on in a free-text reply.
+  const hasAnswers =
+    q.type === "yes_no" ||
+    ((q.type === "single_choice" || q.type === "multi_choice") &&
+      (q.options?.length ?? 0) > 0);
+
   const parentAnswers = parent
     ? parent.type === "yes_no"
       ? ["yes", "no"]
@@ -406,6 +471,21 @@ function QuestionRow({
             await onChanged();
           }}
         />
+        {/* Offered from the answer rather than from the new question, because
+            that is the order the thought arrives in: "if they say rented, I
+            need the tenancy agreement." Written the other way round it means
+            creating a question and then hunting its parent in a list of
+            twenty-three. */}
+        {hasAnswers && (
+          <button
+            type="button"
+            onClick={onAddChild}
+            title="הוסף שאלה שתוצג רק לפי התשובה כאן"
+            className="rounded px-2 py-1 text-xs font-semibold text-brand hover:bg-brand/10"
+          >
+            + מותנית
+          </button>
+        )}
         <button
           type="button"
           onClick={onEdit}

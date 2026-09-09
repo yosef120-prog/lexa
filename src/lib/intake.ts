@@ -225,29 +225,7 @@ export async function reorderQuestions(ordered: IntakeQuestion[]): Promise<void>
   if (error) throw new Error(describeDbError(error));
 }
 
-/**
- * The order this question has to sit in for its condition to work.
- *
- * A condition is answered by a question the client has already been shown, so
- * a dependent below its parent is the only arrangement that functions. Rather
- * than refuse the choice, the list is rearranged around it: the intent — show
- * this only if that — is unambiguous, and the ordering is bookkeeping the
- * person should not have to do.
- */
-export function orderForCondition(
-  all: IntakeQuestion[],
-  childId: string,
-  parentId: string | null,
-): IntakeQuestion[] | null {
-  if (!parentId) return null;
-  const childAt = all.findIndex((q) => q.id === childId);
-  const parentAt = all.findIndex((q) => q.id === parentId);
-  if (childAt < 0 || parentAt < 0 || parentAt < childAt) return null;
-
-  const rest = all.filter((q) => q.id !== childId);
-  const insertAt = rest.findIndex((q) => q.id === parentId) + 1;
-  return [...rest.slice(0, insertAt), all[childAt], ...rest.slice(insertAt)];
-}
+export { orderForCondition, placeUnderParent } from "@/lib/question-order";
 
 export async function updateForm(
   id: string,
