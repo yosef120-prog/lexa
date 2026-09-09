@@ -317,6 +317,21 @@ function QuestionRow({
   // arrows make this one click away, so it has to be visible.
   const parentIsLater = parent ? all.indexOf(parent) > i : false;
 
+  // The answers the parent can currently be given. A condition points at the
+  // text of one of them, so an answer that was removed — or renamed in a way
+  // the database could not follow, such as a reorder — leaves the condition
+  // pointing at nothing. It then matches nobody, and the question it guards is
+  // never shown again. Silently, which is the part worth catching.
+  const parentAnswers = parent
+    ? parent.type === "yes_no"
+      ? ["yes", "no"]
+      : (parent.options ?? [])
+    : [];
+  const conditionIsDangling = Boolean(
+    parent && q.depends_on_value && parentAnswers.length > 0 &&
+      !parentAnswers.includes(q.depends_on_value),
+  );
+
   return (
     <div className="flex items-start justify-between gap-2">
       <div className="flex min-w-0 flex-1 gap-2">
@@ -360,6 +375,12 @@ function QuestionRow({
             )}
           </span>
           {q.help && <span className="text-xs text-muted">{q.help}</span>}
+          {conditionIsDangling && (
+            <span className="mt-0.5 rounded bg-danger/10 px-1.5 py-0.5 text-xs font-semibold text-danger">
+              התנאי מצביע על תשובה שכבר לא קיימת בשאלה שמעליה, ולכן השאלה הזו לא תוצג לאף אחד.
+              פתח אותה ובחר תשובה קיימת.
+            </span>
+          )}
           {parentIsLater && (
             <span className="mt-0.5 rounded bg-danger/10 px-1.5 py-0.5 text-xs font-semibold text-danger">
               השאלה שהיא תלויה בה מופיעה אחריה — היא לעולם לא תוצג ללקוח. הזז אותה למטה, או

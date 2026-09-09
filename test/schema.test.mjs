@@ -2571,6 +2571,52 @@ check("and which answer turns it on", dependent.depends_on_value, "מושכרת"
 // before the answer that decides it exists.
 check("with the question it depends on ahead of it", condOpened[0].id, parentQ);
 
+// A condition points at the text of the answer, so renaming that answer breaks
+// it — the question it guards is never shown to anybody again, and nothing
+// says so.
+await asUser(UID_A, async () => {
+  await db.query(`
+    update public.intake_questions
+    set options = '["מושכרת לדייר","גרים בה"]'::jsonb
+    where id = '${parentQ}'
+  `);
+});
+const followed = (await db.query(`
+  select depends_on_value as v from public.intake_questions
+  where form_id = '${condForm}' and depends_on_question_id = '${parentQ}'
+`)).rows[0].v;
+check("renaming an answer carries its conditions along", followed, "מושכרת לדייר");
+
+// Two edits at once could be two renames or one reorder, and those want
+// opposite answers. A wrong guess points the condition at the wrong answer,
+// which is worse than one that visibly points at nothing.
+await asUser(UID_A, async () => {
+  await db.query(`
+    update public.intake_questions
+    set options = '["גרים בה","מושכרת לדייר"]'::jsonb
+    where id = '${parentQ}'
+  `);
+});
+const notGuessed = (await db.query(`
+  select depends_on_value as v from public.intake_questions
+  where form_id = '${condForm}' and depends_on_question_id = '${parentQ}'
+`)).rows[0].v;
+check("but a reorder is not guessed at", notGuessed, "מושכרת לדייר");
+
+// Adding an answer changes the length, which is not a rename either.
+await asUser(UID_A, async () => {
+  await db.query(`
+    update public.intake_questions
+    set options = '["גרים בה","מושכרת לדייר","בהליכי פינוי"]'::jsonb
+    where id = '${parentQ}'
+  `);
+});
+const afterAdd = (await db.query(`
+  select depends_on_value as v from public.intake_questions
+  where form_id = '${condForm}' and depends_on_question_id = '${parentQ}'
+`)).rows[0].v;
+check("and adding one leaves the condition where it was", afterAdd, "מושכרת לדייר");
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 
 await db.close();
