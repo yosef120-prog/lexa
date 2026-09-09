@@ -29,6 +29,14 @@ export function IntakeBuilder() {
   const [forms, setForms] = useState<IntakeForm[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [questions, setQuestions] = useState<IntakeQuestion[]>([]);
+
+  // What a client is actually asked in order. A dependent question is not a
+  // step of its own — it belongs to the one it hangs off — so it takes no
+  // number and the numbering does not skip.
+  const numbering = (() => {
+    let n = 0;
+    return questions.map((q) => (q.depends_on_question_id ? null : ++n));
+  })();
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -163,9 +171,20 @@ export function IntakeBuilder() {
             chosen?.intro && <p className="text-xs text-muted">{chosen.intro}</p>
           )}
 
+
+          {/* Numbered by what a client is actually asked in order. A question
+              that hangs off another is not a step of its own — it is part of
+              the one above it, and takes an arrow rather than a number. */}
           <ol className="flex flex-col divide-y divide-rule">
             {questions.map((q, i) => (
-              <li key={q.id} className="py-2">
+              <li
+                key={q.id}
+                className={
+                  q.depends_on_question_id
+                    ? "border-s-2 border-brand/30 bg-brand/5 py-2 ps-3"
+                    : "py-2"
+                }
+              >
                 {editingId === q.id ? (
                   <QuestionEditor
                     draft={draftFrom(q)}
@@ -191,6 +210,7 @@ export function IntakeBuilder() {
                   <QuestionRow
                     question={q}
                     index={i}
+                    number={numbering[i]}
                     all={questions}
                     onEdit={() => {
                       setEditingId(q.id);
@@ -275,17 +295,21 @@ export function IntakeBuilder() {
 function QuestionRow({
   question: q,
   index: i,
+  number,
   all,
   onEdit,
   onChanged,
 }: {
   question: IntakeQuestion;
   index: number;
+  /** Its place in what the client is asked, or null when it hangs off another. */
+  number: number | null;
   all: IntakeQuestion[];
   onEdit: () => void;
   onChanged: () => Promise<void>;
 }) {
   const parent = all.find((p) => p.id === q.depends_on_question_id);
+  const children = all.filter((c) => c.depends_on_question_id === q.id);
 
   // A condition survives a reorder that moves its parent below it, and then
   // silently never matches: the client is asked the parent after the point
@@ -296,7 +320,12 @@ function QuestionRow({
   return (
     <div className="flex items-start justify-between gap-2">
       <div className="flex min-w-0 flex-1 gap-2">
-        <span className="mt-0.5 font-mono text-xs text-muted">{i + 1}</span>
+        <span
+          className="mt-0.5 shrink-0 font-mono text-xs text-muted"
+          aria-hidden={number === null}
+        >
+          {number === null ? "↳" : number}
+        </span>
         <div className="flex min-w-0 flex-col">
           <span className="text-sm font-semibold">
             {q.label}
@@ -319,6 +348,16 @@ function QuestionRow({
               </>
             )}
             {q.required && !parent && " · חובה"}
+            {/* Said on the parent as well, so the connection reads from both
+                ends: from below you see what turns this question on, and from
+                above you see that something hangs off this answer. */}
+            {children.length > 0 && (
+              <span className="text-brand">
+                {children.length === 1
+                  ? " · שאלה אחת תלויה בתשובה כאן"
+                  : ` · ${children.length} שאלות תלויות בתשובה כאן`}
+              </span>
+            )}
           </span>
           {q.help && <span className="text-xs text-muted">{q.help}</span>}
           {parentIsLater && (
