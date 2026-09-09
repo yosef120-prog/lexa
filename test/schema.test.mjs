@@ -2617,6 +2617,48 @@ const afterAdd = (await db.query(`
 `)).rows[0].v;
 check("and adding one leaves the condition where it was", afterAdd, "מושכרת לדייר");
 
+// A dependent question stranded at the bottom of the form. The builder draws
+// it nested, but the client is asked in position order and has no indentation
+// to read: the answer that decides the question would come long after it.
+await asUser(UID_A, async () => {
+  await db.query(`
+    insert into public.intake_questions (org_id, form_id, position, type, label)
+    values ('${orgA}', '${condForm}', 3, 'text', 'שאלה שאחריה'),
+           ('${orgA}', '${condForm}', 4, 'text', 'ועוד אחת')
+  `);
+  await db.query(`
+    update public.intake_questions set position = 5
+    where form_id = '${condForm}' and depends_on_question_id = '${parentQ}'
+  `);
+  await db.query(`select public.tidy_question_order('${condForm}')`);
+});
+
+const tidied = await asUser(UID_A, async () =>
+  (await db.query(`
+    select label from public.intake_questions
+    where form_id = '${condForm}' order by position
+  `)).rows.map((r) => r.label),
+);
+check("a dependent question is pulled up under its parent", tidied, [
+  "האם הדירה מושכרת?",
+  "נא לצרף חוזה שכירות",
+  "שאלה שאחריה",
+  "ועוד אחת",
+]);
+
+// Running it again changes nothing — the arrangement is already the one it
+// produces, and a tidy that shuffled on every call would fight the arrows.
+await asUser(UID_A, async () => {
+  await db.query(`select public.tidy_question_order('${condForm}')`);
+});
+const again = await asUser(UID_A, async () =>
+  (await db.query(`
+    select label from public.intake_questions
+    where form_id = '${condForm}' order by position
+  `)).rows.map((r) => r.label),
+);
+check("and tidying twice leaves it alone", again, tidied);
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 
 await db.close();

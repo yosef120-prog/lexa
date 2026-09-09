@@ -67,3 +67,68 @@ export function placeUnderParent<T extends Ordered>(
   const next = [...rest.slice(0, at), child, ...rest.slice(at)];
   return next.every((q, i) => q.id === all[i]?.id) ? null : next;
 }
+
+/**
+ * One question and everything that hangs off it, as a unit.
+ *
+ * The list is kept so that children follow their parent, so a block is a
+ * parent and the run of children directly after it.
+ */
+function blocksOf<T extends Ordered>(all: T[]): T[][] {
+  const blocks: T[][] = [];
+  for (const q of all) {
+    const head = blocks[blocks.length - 1]?.[0];
+    if (q.depends_on_question_id && head && q.depends_on_question_id === head.id) {
+      blocks[blocks.length - 1].push(q);
+    } else {
+      blocks.push([q]);
+    }
+  }
+  return blocks;
+}
+
+/**
+ * Moves a question up or down without separating it from what it belongs to.
+ *
+ * A parent travels with its children: moving it past the next question would
+ * otherwise leave them stranded behind, still conditioned on an answer now
+ * given after them, which is the arrangement that makes a condition never
+ * match.
+ *
+ * A child moves only among its siblings. There is nowhere else it can go —
+ * outside its parent's run it is either before the answer it depends on or
+ * marooned under a question it has nothing to do with.
+ *
+ * Returns null when the move is not available, which is also what the arrow
+ * asks to decide whether it is disabled.
+ */
+export function moveQuestion<T extends Ordered>(
+  all: T[],
+  id: string,
+  direction: -1 | 1,
+): T[] | null {
+  const blocks = blocksOf(all);
+
+  const blockAt = blocks.findIndex((b) => b.some((q) => q.id === id));
+  if (blockAt < 0) return null;
+  const block = blocks[blockAt];
+  const isHead = block[0].id === id;
+
+  if (isHead) {
+    const to = blockAt + direction;
+    if (to < 0 || to >= blocks.length) return null;
+    const next = [...blocks];
+    [next[blockAt], next[to]] = [next[to], next[blockAt]];
+    return next.flat();
+  }
+
+  // A child, among the children of its own parent only.
+  const at = block.findIndex((q) => q.id === id);
+  const to = at + direction;
+  if (to < 1 || to >= block.length) return null;
+  const moved = [...block];
+  [moved[at], moved[to]] = [moved[to], moved[at]];
+  const next = [...blocks];
+  next[blockAt] = moved;
+  return next.flat();
+}

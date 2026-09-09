@@ -8,9 +8,9 @@ import {
   QUESTION_TYPE_LABEL,
   removeQuestion,
   orderForCondition,
+  moveQuestion,
   placeUnderParent,
   reorderQuestions,
-  swapQuestions,
   updateForm,
   updateQuestion,
   type IntakeForm,
@@ -456,18 +456,25 @@ function QuestionRow({
       </div>
 
       <div className="flex shrink-0 items-center gap-0.5">
+        {/* A question moves with whatever hangs off it, and a dependent one
+            moves only among its siblings. Swapping single rows let a parent
+            walk away from its children, which leaves them conditioned on an
+            answer now given after them — the arrangement in which a condition
+            never matches and the question is never shown again. */}
         <Move
           up
-          disabled={i === 0}
+          disabled={moveQuestion(all, q.id, -1) === null}
           onMove={async () => {
-            await swapQuestions(q, all[i - 1]);
+            const next = moveQuestion(all, q.id, -1);
+            if (next) await reorderQuestions(next);
             await onChanged();
           }}
         />
         <Move
-          disabled={i === all.length - 1}
+          disabled={moveQuestion(all, q.id, 1) === null}
           onMove={async () => {
-            await swapQuestions(q, all[i + 1]);
+            const next = moveQuestion(all, q.id, 1);
+            if (next) await reorderQuestions(next);
             await onChanged();
           }}
         />

@@ -5,7 +5,7 @@
  * technically correct and useless: the firm cannot see what it hangs off, and
  * the client meets it long after the answer that decides it.
  */
-import { placeUnderParent, orderForCondition } from "../src/lib/question-order.ts";
+import { placeUnderParent, orderForCondition, moveQuestion } from "../src/lib/question-order.ts";
 
 let failures = 0;
 let checks = 0;
@@ -69,6 +69,43 @@ check(
   orderForCondition([q("parent"), q("a"), q("child")], "child", "parent"),
   null,
 );
+
+console.log("\nconditions · moving one without stranding another\n");
+
+// a, [b + its two children], c
+const list = [q("a"), q("b"), q("b1", "b"), q("b2", "b"), q("c")];
+
+// The whole point: b travels with what hangs off it. Left behind, its children
+// would sit above the answer that decides them and never appear again.
+check(
+  "a parent moving down takes its children with it",
+  ids(moveQuestion(list, "b", 1)),
+  ["a", "c", "b", "b1", "b2"],
+);
+check("and moving up as well", ids(moveQuestion(list, "b", -1)), ["b", "b1", "b2", "a", "c"]);
+
+// A question below a family clears all of it rather than landing inside.
+check(
+  "a question below a family clears all of it",
+  ids(moveQuestion(list, "c", -1)),
+  ["a", "c", "b", "b1", "b2"],
+);
+
+// A child has nowhere to go but among its siblings: above them it precedes the
+// answer it depends on, below them it is marooned under an unrelated question.
+check("a child swaps with its sibling", ids(moveQuestion(list, "b2", -1)), [
+  "a",
+  "b",
+  "b2",
+  "b1",
+  "c",
+]);
+check("a child cannot climb above its parent", moveQuestion(list, "b1", -1), null);
+check("nor drop out of the family", moveQuestion(list, "b2", 1), null);
+
+check("the first question cannot go up", moveQuestion(list, "a", -1), null);
+check("the last cannot go down", moveQuestion(list, "c", 1), null);
+check("a question that is not there does not move", moveQuestion(list, "zzz", 1), null);
 
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 process.exit(failures === 0 ? 0 : 1);

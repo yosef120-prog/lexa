@@ -225,7 +225,7 @@ export async function reorderQuestions(ordered: IntakeQuestion[]): Promise<void>
   if (error) throw new Error(describeDbError(error));
 }
 
-export { orderForCondition, placeUnderParent } from "@/lib/question-order";
+export { moveQuestion, orderForCondition, placeUnderParent } from "@/lib/question-order";
 
 export async function updateForm(
   id: string,
