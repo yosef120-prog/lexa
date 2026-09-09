@@ -203,13 +203,6 @@ export async function updateQuestion(
  * position) sees the finished pair rather than the half-swapped middle — which
  * is why that constraint is deferred.
  */
-export async function swapQuestions(a: IntakeQuestion, b: IntakeQuestion): Promise<void> {
-  const { error } = await supabase.from("intake_questions").upsert([
-    { id: a.id, position: b.position },
-    { id: b.id, position: a.position },
-  ]);
-  if (error) throw new Error(describeDbError(error));
-}
 
 /**
  * Writes a whole order at once.
@@ -218,11 +211,22 @@ export async function swapQuestions(a: IntakeQuestion, b: IntakeQuestion): Promi
  * simpler than working out the smallest change, and the unique constraint is
  * deferred, so the finished order is what gets checked.
  */
-export async function reorderQuestions(ordered: IntakeQuestion[]): Promise<void> {
-  const { error } = await supabase
-    .from("intake_questions")
-    .upsert(ordered.map((q, i) => ({ id: q.id, position: i + 1 })));
-  if (error) throw new Error(describeDbError(error));
+export async function reorderQuestions(
+  formId: string,
+  ordered: IntakeQuestion[],
+): Promise<void> {
+  // A definer function rather than an upsert. An upsert is an insert, and row
+  // level security judged it as one — against a proposed row with no org_id,
+  // which belongs to no firm and is refused. Reordering is a renumbering of
+  // rows that already exist, and the function checks the caller's role itself.
+  const { error } = await supabase.rpc("set_question_order", {
+    p_form_id: formId,
+    p_ids: ordered.map((q) => q.id),
+  });
+  if (error) {
+    const named = Object.keys(ORDER_TROUBLE).find((k) => error.message.includes(k));
+    throw new Error(named ? ORDER_TROUBLE[named] : describeDbError(error));
+  }
 }
 
 export { moveQuestion, orderForCondition, placeUnderParent } from "@/lib/question-order";
@@ -239,6 +243,14 @@ export async function updateForm(
 }
 
 /** What the database refuses, said in a way that names the next step. */
+const ORDER_TROUBLE: Record<string, string> = {
+  FORBIDDEN: "רק בעלים, עורך דין או מזכירה יכולים לשנות את סדר השאלות.",
+  NOT_FOUND: "השאלון או אחת השאלות לא נמצאו. רענן ונסה שוב.",
+  // The browser sent a partial list, which would leave the rest holding
+  // positions that collide with the new ones.
+  INCOMPLETE_ORDER: "הסדר שנשלח אינו מלא. רענן ונסה שוב.",
+};
+
 const QUESTION_TROUBLE: Record<string, string> = {
   // Removing it would set the condition on every question hanging off it to
   // null, quietly turning a question written for some clients into one every

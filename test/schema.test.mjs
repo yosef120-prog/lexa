@@ -2683,6 +2683,83 @@ await asUser(UID_A, async () => {
 });
 check("and once it is gone the parent can be too", childGone, "ok");
 
+// Writing a new order used to go out as an upsert of {id, position} pairs. An
+// upsert is an insert, so row level security judged it against a proposed row
+// with no org_id — belonging to no firm, and refused. The firm was told it had
+// no permission to do a thing it was entitled to do.
+const orderForm = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.intake_forms (org_id, name, created_by)
+    values ('${orgA}', 'סדר', '${UID_A}') returning id
+  `)).rows[0].id,
+);
+const oq = [];
+for (const [n, label] of [[1, "ראשונה"], [2, "שנייה"], [3, "שלישית"]]) {
+  oq.push(
+    await asUser(UID_A, async () =>
+      (await db.query(`
+        insert into public.intake_questions (org_id, form_id, position, type, label)
+        values ('${orgA}', '${orderForm}', ${n}, 'text', '${label}') returning id
+      `)).rows[0].id,
+    ),
+  );
+}
+
+await asUser(UID_A, async () => {
+  await db.query(`
+    select public.set_question_order('${orderForm}',
+      array['${oq[2]}','${oq[0]}','${oq[1]}']::uuid[])
+  `);
+});
+const reordered = await asUser(UID_A, async () =>
+  (await db.query(`
+    select label from public.intake_questions
+    where form_id = '${orderForm}' order by position
+  `)).rows.map((r) => r.label),
+);
+check("a firm can write a new order", reordered, ["שלישית", "ראשונה", "שנייה"]);
+
+// An intern reads the questionnaire and does not arrange it.
+let internOrder = "";
+await asUser(UID_DIARY_INTERN, async () => {
+  try {
+    await db.query(`
+      select public.set_question_order('${orderForm}', array['${oq[0]}','${oq[1]}','${oq[2]}']::uuid[])
+    `);
+    internOrder = "allowed";
+  } catch (e) {
+    internOrder = e.message.includes("FORBIDDEN") ? "refused" : e.message;
+  }
+});
+check("an intern cannot rearrange it", internOrder, "refused");
+
+// Naming a question from elsewhere is how one firm would renumber another's.
+let foreign = "";
+await asUser(UID_A, async () => {
+  try {
+    await db.query(`
+      select public.set_question_order('${orderForm}',
+        array['${oq[0]}','${oq[1]}','${parentQ}']::uuid[])
+    `);
+    foreign = "allowed";
+  } catch (e) {
+    foreign = e.message.includes("NOT_FOUND") ? "refused" : e.message;
+  }
+});
+check("and a question from another form is refused", foreign, "refused");
+
+// A partial list would leave the rest holding positions that collide.
+let partial = "";
+await asUser(UID_A, async () => {
+  try {
+    await db.query(`select public.set_question_order('${orderForm}', array['${oq[0]}']::uuid[])`);
+    partial = "allowed";
+  } catch (e) {
+    partial = e.message.includes("INCOMPLETE_ORDER") ? "refused" : e.message;
+  }
+});
+check("as is an order that leaves questions out", partial, "refused");
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 
 await db.close();

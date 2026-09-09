@@ -205,7 +205,7 @@ export function IntakeBuilder() {
                         q.id,
                         d.depends_on_question_id,
                       );
-                      if (fixed) await reorderQuestions(fixed);
+                      if (fixed) await reorderQuestions(selected ?? "", fixed);
                       setEditingId(null);
                       await reload();
                     }}
@@ -218,6 +218,7 @@ export function IntakeBuilder() {
                       index={i}
                       number={numbering[i]}
                       all={questions}
+                      formId={selected ?? ""}
                       onEdit={() => {
                         setEditingId(q.id);
                         setAdding(false);
@@ -263,7 +264,7 @@ export function IntakeBuilder() {
                             if (parentId) {
                               const fresh = await listQuestions(selected ?? "");
                               const placed = placeUnderParent(fresh, id, parentId);
-                              if (placed) await reorderQuestions(placed);
+                              if (placed) await reorderQuestions(selected ?? "", placed);
                             }
                             setChildOf(null);
                             await reload();
@@ -352,6 +353,7 @@ function QuestionRow({
   index: i,
   number,
   all,
+  formId,
   onEdit,
   onAddChild,
   onChanged,
@@ -362,6 +364,8 @@ function QuestionRow({
   number: number | null;
   all: IntakeQuestion[];
   onEdit: () => void;
+  /** The form these questions belong to, which reordering is scoped by. */
+  formId: string;
   /** Offered only on a question that has answers to hang one off. */
   onAddChild: () => void;
   onChanged: () => Promise<void>;
@@ -473,7 +477,7 @@ function QuestionRow({
           disabled={moveQuestion(all, q.id, -1) === null}
           onMove={async () => {
             const next = moveQuestion(all, q.id, -1);
-            if (next) await reorderQuestions(next);
+            if (next) await reorderQuestions(formId, next);
             await onChanged();
           }}
         />
@@ -481,7 +485,7 @@ function QuestionRow({
           disabled={moveQuestion(all, q.id, 1) === null}
           onMove={async () => {
             const next = moveQuestion(all, q.id, 1);
-            if (next) await reorderQuestions(next);
+            if (next) await reorderQuestions(formId, next);
             await onChanged();
           }}
         />
