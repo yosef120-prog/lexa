@@ -2521,6 +2521,56 @@ const markedNotGone = (await db.query(`
 `)).rows[0].gone;
 check("the entry is marked, not destroyed", markedNotGone, true);
 
+console.log("\nschema · a question that depends on another\n");
+
+// A question the client only sees if they answered the one before it a certain
+// way. Nothing tested this before, and it is the feature a firm notices fastest
+// when it is wrong: a tenancy agreement asked of somebody who owns the flat.
+const condForm = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.intake_forms (org_id, name, created_by)
+    values ('${orgA}', 'שאלון מותנה', '${UID_A}') returning id
+  `)).rows[0].id,
+);
+const parentQ = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.intake_questions (org_id, form_id, position, type, label, options, required)
+    values ('${orgA}', '${condForm}', 1, 'single_choice', 'האם הדירה מושכרת?',
+            '["מושכרת","גרים בה"]'::jsonb, true)
+    returning id
+  `)).rows[0].id,
+);
+await asUser(UID_A, async () => {
+  await db.query(`
+    insert into public.intake_questions
+      (org_id, form_id, position, type, label, required, depends_on_question_id, depends_on_value)
+    values ('${orgA}', '${condForm}', 2, 'file', 'נא לצרף חוזה שכירות', true,
+            '${parentQ}', 'מושכרת')
+  `);
+});
+
+const condIntake = await asUser(UID_A, async () =>
+  (await db.query(`
+    insert into public.client_intakes (org_id, client_id, form_id)
+    values ('${orgA}', '${clientA}', '${condForm}') returning token
+  `)).rows[0].token,
+);
+
+const condOpened = await asAnon(async () =>
+  (await db.query(`select questions from public.open_intake('${condIntake}')`)).rows[0].questions,
+);
+const dependent = condOpened.find((q) => q.label === 'נא לצרף חוזה שכירות');
+
+check("the link hands the client both questions", condOpened.length, 2);
+// The whole condition has to survive the trip. The browser decides what to
+// show, and it can only decide with these two fields in hand — without them
+// every client is asked for a tenancy agreement.
+check("and the dependent one carries which question it hangs on", dependent.depends_on_question_id, parentQ);
+check("and which answer turns it on", dependent.depends_on_value, "מושכרת");
+// The parent must come first, or the client is asked the dependent question
+// before the answer that decides it exists.
+check("with the question it depends on ahead of it", condOpened[0].id, parentQ);
+
 console.log(`\n${checks - failures}/${checks} checks passed\n`);
 
 await db.close();
